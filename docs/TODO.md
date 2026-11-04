@@ -29,8 +29,16 @@ Background (research 2026-11-04):
 - [x] 1.3 Move `/home/lokiy/forever` into the repo layout and push:
       `addon/` (the addon), `server/` (upload service + build scripts), `site/` (loot page), `docs/` (this TODO,
       HISTORY.md, how to edit). Add a README with the V+ / Forever split.
-- [ ] 1.4 **(Lokiy, in the hub)** Add the repo's `docs/TODO.md` to `tools/todo.py` in `lokiy-dev-vplus`, so it shows
-      on the admin "Open items" page.
+- [ ] 1.4 **(Lokiy, on the PC with the hub sessions)** Add the repo's `docs/TODO.md` to `tools/todo.py` in
+      `lokiy-dev-vplus`, so it shows on the admin "Open items" page. Can't be done from the server or the laptop (the
+      hub repo is private and only on that PC). Paste this into a hub session there:
+      > Add the WoW Forever project to the admin "Open items" page: in `tools/todo.py`, add a source titled
+      > "LootTracker Forever (WoW Forever)" that reads `docs/TODO.md` from
+      > https://github.com/lokiy999/LootTracker-Forever (branch `main`, source link to that file). Clone the repo next
+      > to the others if `todo.py` reads local clones. Rebuild and publish the page, check that the section shows up,
+      > and commit. Its open items use `- [ ]` checkboxes numbered by step (1.1, 2.1, ...), so count/show unticked
+      > ones as open. Also check whether `todo.py` could run on the lokiy.dev server (no files that only exist on this
+      > PC); if so, say what it would need (a read-only deploy key for the hub repo).
 
 ## 2. Decisions
 - [ ] 2.1 **(Lokiy)** Name of the addon (e.g. "LootTracker Forever").
