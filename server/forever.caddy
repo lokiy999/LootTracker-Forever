@@ -1,0 +1,14 @@
+forever.lokiy.dev {
+    basic_auth /admin* {
+        lokiy @ADMIN_HASH@
+    }
+    # upload service (server/, systemd loot-upload-forever): public upload, admin behind basic_auth above
+    request_body /upload/api/* {
+        max_size 32MB
+    }
+    reverse_proxy /upload/api/* localhost:8767
+    reverse_proxy /admin/api/* localhost:8767
+    root * /var/www/forever
+    encode zstd gzip
+    file_server
+}

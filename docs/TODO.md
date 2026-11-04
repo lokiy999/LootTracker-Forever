@@ -41,10 +41,10 @@ Background (research 2026-11-04):
       > PC); if so, say what it would need (a read-only deploy key for the hub repo).
 
 ## 2. Decisions
-- [ ] 2.1 **(Lokiy)** Name of the addon (e.g. "LootTracker Forever").
-- [ ] 2.2 **(Lokiy)** Address of the site: forever.lokiy.dev or lokiy.dev/forever.
-- [ ] 2.3 **(Lokiy)** Uploads approved by hand like V+, or accepted automatically?
-- [ ] 2.4 **(Lokiy)** Who tests in game (a Forever account to run test builds and send back the saved data files).
+- [x] 2.1 **(Lokiy)** Name of the addon: LootTracker Forever.
+- [x] 2.2 **(Lokiy)** Address of the site: forever.lokiy.dev (DNS A record added 2026-11-04).
+- [x] 2.3 **(Lokiy)** Uploads approved by hand, like V+.
+- [x] 2.4 **(Lokiy)** Lokiy tests in game on their Forever account.
 
 ## 3. Find out what Forever allows (test addon)
 - [ ] 3.1 Write a small test addon (in `addon/test/`) that only logs events to its SavedVariables:
@@ -78,7 +78,7 @@ Background (research 2026-11-04):
 - [ ] 5.3 Copy and adapt the build scripts (`build_loot.py`, `export_json.py`, `enrich.py`) to the new format; test
       with the save file from 4.7.
 - [ ] 5.4 **(Lokiy, sudo)** Install the systemd unit for the Forever upload service.
-- [ ] 5.5 **(Lokiy, sudo)** Caddy: new address (from 2.2) and upload routes, then reload Caddy.
+- [ ] 5.5 **(Lokiy, sudo)** Caddy: `sudo bash ~/forever/server/caddy_add.sh` (adds forever.lokiy.dev, `/var/www/forever`, upload routes on port 8767, reloads).
 - [ ] 5.6 Copy the admin approve/reject page (`/admin/loot`) as a Forever version (if 2.3 says approval).
 - [ ] 5.7 Cron job for the Forever rebuild, separate from `sync_db.sh` (no item database step).
 - [ ] 5.8 Backups of the Forever upload data.
