@@ -38,13 +38,13 @@ Background (research 2026-11-04):
 - [x] 2.4 **(Lokiy)** Lokiy tests in game on their Forever account.
 
 ## 3. Find out what Forever allows (test addon)
-- [ ] 3.1 Write a small test addon (in `addon/test/`) that only logs events to its SavedVariables:
-  - [ ] Loot window: item IDs, source (corpse/chest) and its GUID (LOOT_READY / LOOT_OPENED, GetLootSourceInfo).
-  - [ ] Loot chat messages (CHAT_MSG_LOOT, CHAT_MSG_MONEY): own loot, group loot, rolls, master loot.
-  - [ ] Boss start/end (ENCOUNTER_START / ENCOUNTER_END) for boss kills.
-  - [ ] NPC ID readable from a mob GUID.
-  - [ ] Ways to count kills without the combat log: nameplates, target death, looted corpses.
-  - [ ] Addon messages between players (only needed for in-game sharing, not for the site).
+- [x] 3.1 Write a small test addon (in `addon/test/`) that only logs events to its SavedVariables:
+  - [x] Loot window: item IDs, source (corpse/chest) and its GUID (LOOT_READY / LOOT_OPENED, GetLootSourceInfo).
+  - [x] Loot chat messages (CHAT_MSG_LOOT, CHAT_MSG_MONEY): own loot, group loot, rolls, master loot.
+  - [x] Boss start/end (ENCOUNTER_START / ENCOUNTER_END) for boss kills.
+  - [x] NPC ID readable from a mob GUID.
+  - [x] Ways to count kills without the combat log: nameplates, target death, looted corpses.
+  - [x] Addon messages between players (only needed for in-game sharing, not for the site).
 - [ ] 3.2 **(Lokiy)** Play with it: open world, a dungeon, and a raid boss fight (are loot messages secret during
       encounters?). Send the SavedVariables file.
 - [ ] 3.3 Read the results and write them down in `docs/` (what works, what is blocked).
@@ -53,38 +53,38 @@ Background (research 2026-11-04):
 - [ ] 3.6 Optional: look at a `+Wowhead_Looter.lua` file if one is available (useful as an extra import source?).
 
 ## 4. Addon
-- [ ] 4.1 Write the save file format first (documented in `docs/`), including realm name and game type, so uploads can
+- [x] 4.1 Write the save file format first (documented in `docs/`), including realm name and game type, so uploads can
       be checked and never mixed with V+.
-- [ ] 4.2 Rewrite LootTracker for the modern API (current Forever interface version, C_ namespaces).
-- [ ] 4.3 Record each event with time, zone and instance: kills, loot from mobs (with NPC ID), chests/nodes/objects,
+- [ ] **Draft in `addon/LootTrackerForever/`, tested on a fake API only (`addon/test/harness.py`).** 4.2 Rewrite LootTracker for the modern API (current Forever interface version, C_ namespaces).
+- [ ] **Draft: loot, chests, copper, rolls, handouts, boss fights. No kills (no combat log) and no quest rewards.** 4.3 Record each event with time, zone and instance: kills, loot from mobs (with NPC ID), chests/nodes/objects,
       copper, rolls and master-loot handouts, quest rewards (optional).
-- [ ] 4.4 Count each corpse once (GUID within the session).
-- [ ] 4.5 Safe under the combat restrictions: no errors in boss fights; process data out of combat where needed.
-- [ ] 4.6 Small in-game window: session stats and "data ready to upload".
+- [ ] **Draft.** 4.4 Count each corpse once (GUID within the session).
+- [ ] **Draft: tested with fake secret values; needs a real boss fight.** 4.5 Safe under the combat restrictions: no errors in boss fights; process data out of combat where needed.
+- [ ] **Draft.** 4.6 Small in-game window: session stats and "data ready to upload".
 - [ ] 4.7 **(Lokiy)** Test the full addon in game and send a save file (needed for step 5).
 
 ## 5. Server and upload
-- [ ] 5.1 Copy the upload service (`~/loot-upload`) into `server/`: own port, own data folder, own upload codes.
-- [ ] 5.2 Validation: realm/game type must be Forever and the format from 4.1; reject V+ files.
-- [ ] 5.3 Copy and adapt the build scripts (`build_loot.py`, `export_json.py`, `enrich.py`) to the new format; test
+- [x] 5.1 Copy the upload service (`~/loot-upload`) into `server/`: own port, own data folder, own upload codes.
+- [x] 5.2 Validation: realm/game type must be Forever and the format from 4.1; reject V+ files.
+- [x] 5.3 Copy and adapt the build scripts (`build_loot.py`, `export_json.py`, `enrich.py`) to the new format; test
       with the save file from 4.7.
-- [ ] 5.4 **(Lokiy, sudo)** Install the systemd unit for the Forever upload service.
+- [ ] 5.4 **(Lokiy, sudo)** Install the systemd unit: `sudo bash ~/forever/server/service_add.sh`.
 - [x] 5.5 **(Lokiy, sudo)** Caddy: `sudo bash ~/forever/server/caddy_add.sh` (adds forever.lokiy.dev, `/var/www/forever`, upload routes on port 8767, reloads).
-- [ ] 5.6 Copy the admin approve/reject page (`/admin/loot`) as a Forever version (if 2.3 says approval).
-- [ ] 5.7 Cron job for the Forever rebuild, separate from `sync_db.sh` (no item database step).
-- [ ] 5.8 Backups of the Forever upload data.
+- [x] 5.6 Copy the admin approve/reject page (`/admin/loot`) as a Forever version (if 2.3 says approval).
+- [ ] **Script ready (`server/cron.sh`), not installed.** 5.7 Cron job for the Forever rebuild, separate from `sync_db.sh` (no item database step).
+- [ ] **In `server/cron.sh`: a daily archive, last 14 kept. Not running until the cron job is.** 5.8 Backups of the Forever upload data.
 
 ## 6. Website
-- [ ] 6.1 Copy the loot page into `site/` and serve it at the address from 2.2.
-- [ ] 6.2 Replace db.lokiy.dev with Wowhead (Forever): icons, tooltips (Wowhead tooltip script), item and mob links,
+- [ ] **Written fresh in `site/`, not deployed yet.** 6.1 Copy the loot page into `site/` and serve it at the address from 2.2.
+- [ ] **Done in the draft; Forever's Wowhead address and IDs are unconfirmed (3.5).** 6.2 Replace db.lokiy.dev with Wowhead (Forever): icons, tooltips (Wowhead tooltip script), item and mob links,
       names of items the addon didn't record (~37 db.lokiy.dev references in the V+ loot scripts and page).
-- [ ] 6.3 Texts: "WoW Forever" instead of Vanilla+, plus an upload guide.
-- [ ] 6.4 Pages: per mob (kills, drop rates), per item (drops, sources), per zone/instance, per boss, and a personal
+- [x] 6.3 Texts: "WoW Forever" instead of Vanilla+, plus an upload guide.
+- [ ] **Draft: mobs, items, zones, bosses, per player.** 6.4 Pages: per mob (kills, drop rates), per item (drops, sources), per zone/instance, per boss, and a personal
       "what I looted" view per uploader.
-- [ ] 6.5 Show sample sizes (e.g. "3 drops / 41 kills") so low counts aren't misleading.
+- [x] 6.5 Show sample sizes (e.g. "3 drops / 41 kills") so low counts aren't misleading.
 
 ## 7. Release
-- [ ] 7.1 "How to edit" for the addon, upload flow, cron job and site: README + the admin page (standing rule).
+- [ ] **README updated; admin page link still to add.** 7.1 "How to edit" for the addon, upload flow, cron job and site: README + the admin page (standing rule).
 - [ ] 7.2 Package the addon from `addon/` and publish on CurseForge (Forever flavor) and/or addons.lokiy.dev.
 - [ ] 7.3 Link the Forever loot site from lokiy.dev, with V+ and Forever clearly separate.
 - [ ] 7.4 **(Lokiy)** First real uploads; check the site.

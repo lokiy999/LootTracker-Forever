@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: LootTracker Forever
+## Notes: Records what you loot on WoW Forever, for upload to forever.lokiy.dev.
+## Version: 0.1.0
+## SavedVariables: LootTrackerForeverDB
+
+LootTrackerForever.lua

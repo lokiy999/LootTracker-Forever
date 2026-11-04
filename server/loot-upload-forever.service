@@ -1,0 +1,21 @@
+[Unit]
+Description=LootTracker Forever uploads for forever.lokiy.dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lokiy
+WorkingDirectory=/home/lokiy/forever/server
+ExecStart=/usr/bin/python3 /home/lokiy/forever/server/server.py
+# always: killing the main PID (as lokiy, no sudo) restarts it after a code update
+Restart=always
+RestartSec=3
+# The service only needs its own folder; everything else stays read-only to it.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lokiy/forever-data
+
+[Install]
+WantedBy=multi-user.target

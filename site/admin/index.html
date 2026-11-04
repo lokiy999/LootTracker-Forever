@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Uploads</title>
+  <meta name="robots" content="noindex">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1a1e; --panel: #232329; --panel-2: #1c1c21; --line: #34343c; --text: #e4e4e7; --muted: #9a9aa2;
+      --accent: #9d8cff; --gold: #e3b453; --ok: #5fd07a; --bad: #ff6b6b;
+      --mono: ui-monospace, "JetBrains Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 28px 16px 60px; }
+    a { color: var(--accent); }
+    h1 { font-size: 1.5rem; margin: 6px 0 4px; }
+    h2 { font-size: 1.05rem; margin: 28px 0 10px; color: var(--gold); }
+    p { color: var(--muted); margin: 0 0 10px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+    .who { font-weight: 600; font-size: 1rem; }
+    .muted { color: var(--muted); }
+    .facts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; color: var(--muted); font-size: .9rem; }
+    .facts b { color: var(--text); font-weight: 600; }
+    button { font: inherit; padding: 6px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel-2);
+      color: var(--text); cursor: pointer; }
+    button.ok { background: rgba(95, 208, 122, .15); border-color: rgba(95, 208, 122, .45); }
+    button.bad { background: rgba(255, 107, 107, .12); border-color: rgba(255, 107, 107, .4); }
+    button:disabled { opacity: .5; cursor: default; }
+    input { font: inherit; padding: 6px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+    code { font: .85rem var(--mono); background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; word-break: break-all; }
+    .empty { color: var(--muted); font-style: italic; }
+    .note { padding: 10px 12px; border-radius: 8px; margin: 10px 0; display: none; }
+    .note.on { display: block; background: var(--panel-2); border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { color: var(--muted); font-weight: 500; font-size: .85rem; }
+    .tbl { overflow-x: auto; }
+    .warn { margin-top: 8px; padding: 7px 10px; border-radius: 7px; background: rgba(227, 180, 83, .1);
+      border: 1px solid rgba(227, 180, 83, .4); color: var(--gold); font-size: .9rem; }
+    details.batches { margin-top: 8px; }
+    details.batches summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+    .batch { border-top: 1px solid var(--line); padding: 8px 0 2px; margin-top: 8px; }
+    .preview { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .preview h3 { font-size: .95rem; margin: 14px 0 6px; color: var(--text); }
+    .preview table { font-size: .85rem; }
+    .preview td, .preview th { padding: 4px 6px; vertical-align: top; }
+    .preview details summary { cursor: pointer; color: var(--accent); margin: 10px 0 4px; }
+    .num { text-align: right; white-space: nowrap; }
+    .small { font-size: .8rem; color: var(--muted); }
+    .q0 { color: #9d9d9d; } .q1 { color: #fff; } .q2 { color: #1eff00; } .q3 { color: #4a9eff; } .q4 { color: #b56bff; } .q5 { color: #ff8000; }
+    a.q0, a.q1, a.q2, a.q3, a.q4, a.q5 { text-decoration: none; }
+  </style>
+</head>
+<body>
+<main>
+  <a href="/">← Forever loot</a>
+  <h1>Loot uploads</h1>
+  <p>Players upload their LootTrackerForever.lua on <a href="/upload/" target="_blank" rel="noopener">forever.lokiy.dev/upload</a>.
+    Nothing reaches the site until you approve it here. Nothing is ever deleted: every approved upload is kept as its own batch
+    (players clear their data in game after uploading), and rejected uploads are kept apart, unused.</p>
+  <div class="note" id="note" role="status"></div>
+
+  <h2>Waiting for review</h2>
+  <div id="queue"><p class="empty">Loading…</p></div>
+
+  <h2>Approved</h2>
+  <div id="approved"></div>
+
+  <h2>Rejected (kept, not used)</h2>
+  <div id="rejected"></div>
+
+  <h2>Upload codes</h2>
+  <p>Each player needs their own code. Send them the link it gives you; the code fills in by itself.</p>
+  <form class="row card" id="new-code" style="justify-content:flex-start">
+    <input id="new-name" placeholder="Player name" maxlength="24" required>
+    <button type="submit">Make a code</button>
+  </form>
+  <div class="tbl"><table><thead><tr><th>Player</th><th>Code</th><th>Made</th><th title="Uploads with this code skip the review">Auto-approve</th><th></th></tr></thead><tbody id="codes"></tbody></table></div>
+</main>
+<script>
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, props, ...kids) => { const e = document.createElement(tag); Object.assign(e, props || {}); e.append(...kids); return e; };
+  const when = (t) => t ? new Date(t * 1000).toLocaleString() : "–";
+  const day = (t) => t ? new Date(t * 1000).toLocaleDateString() : "–";
+  const kb = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+  const sizeText = (size, stored) => kb(size) + (stored != null ? ` (${kb(stored)} stored)` : "");
+  const note = (text) => { $("note").textContent = text; $("note").className = "note on"; };
+
+  async function api(path, body) {
+    const r = await fetch("/admin/api/" + path, body === undefined ? {} : {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
+    return j;
+  }
+  function facts(u) {
+    const types = Object.entries(u.eventTypes || {}).map(([k, n]) => `${n} ${k}`).join(", ");
+    const f = el("div", { className: "facts" });
+    for (const [k, v] of [["Characters", (u.characters || []).join(", ") || "–"], ["Corpses", u.corpses], ["Items", u.items],
+      ["Boss fights", u.bosses], ["Events", u.events + (types ? ` (${types})` : "")], ["Dates", `${day(u.from)} – ${day(u.to)}`],
+      ["Size", sizeText(u.size, u.stored)], ["Addon", (u.addons && u.addons.length ? u.addons.join(", ") : "–") + ` (format ${u.format})`]])
+      f.append(el("span", {}, `${k} `, el("b", { textContent: String(v) })));
+    return f;
+  }
+  function render(d) {
+    const q = $("queue"); q.innerHTML = "";
+    if (!d.queue.length) q.append(el("p", { className: "empty", textContent: "Nothing waiting." }));
+    for (const u of d.queue) {
+      const ok = el("button", { className: "ok", textContent: "Approve" });
+      const no = el("button", { className: "bad", textContent: "Reject" });
+      ok.onclick = () => act("approve", u, `Approved ${u.player}'s upload. forever.lokiy.dev includes it within 5 minutes.`);
+      no.onclick = () => { if (confirm(`Reject ${u.player}'s upload? It's kept under Rejected and not used.`)) act("reject", u, `Rejected ${u.player}'s upload.`); };
+      const card = el("div", { className: "card" },
+        el("div", { className: "row" }, el("span", { className: "who", textContent: u.player }),
+          el("span", { className: "muted", textContent: `uploaded ${when(u.at)}` }),
+          el("span", {}, previewButton(u), " ", ok, " ", no)),
+        facts(u));
+      if (u.overlapsUntil) card.append(el("div", { className: "warn", textContent:
+        `Starts before the end of ${u.player}'s approved data (${day(u.overlapsUntil)}): they didn't clear after their last upload. ` +
+        "Events in both count once." }));
+      q.append(card);
+    }
+    playerList($("approved"), d.approved, "approvedAt", "approved");
+    playerList($("rejected"), d.rejected, "rejectedAt", "rejected");
+    const c = $("codes"); c.innerHTML = "";
+    for (const k of d.codes) {
+      const link = `${location.origin}/loot/upload#code=${encodeURIComponent(k.code)}`;
+      const copy = el("button", { textContent: "Copy link" });
+      copy.onclick = async () => { try { await navigator.clipboard.writeText(link); note(`Link for ${k.name} copied.`); } catch (e) { prompt("Link:", link); } };
+      // Auto-approve: uploads with this code skip the review (for Lokiy's own uploads)
+      const auto = el("input", { type: "checkbox", checked: !!k.auto, title: "Uploads with this code skip the review" });
+      auto.onchange = () => api("auto", { code: k.code, on: auto.checked }).then(
+        () => note(`Auto-approve ${auto.checked ? "on" : "off"} for ${k.name}.`), (e) => { note(e.message); load(); });
+      const revoke = el("button", { className: "bad", textContent: "Revoke" });
+      revoke.onclick = () => { if (confirm(`Revoke ${k.name}'s code? Their uploads stop working.`)) api("revoke", { code: k.code }).then(() => { note(`Revoked ${k.name}'s code.`); load(); }, (e) => note(e.message)); };
+      c.append(el("tr", {}, el("td", { textContent: k.name }), el("td", {}, el("code", { textContent: k.code })),
+        el("td", { className: "muted", textContent: k.revoked ? `revoked ${day(k.revoked)}` : day(k.created) }),
+        el("td", {}, k.revoked ? "" : auto),
+        el("td", {}, ...(k.revoked ? [] : [copy, " ", revoke]))));
+    }
+    if (!d.codes.length) c.append(el("tr", {}, el("td", { colSpan: 5, className: "empty", textContent: "No codes yet." })));
+  }
+  // Every batch of a player, with the totals over all of them.
+  function playerList(host, byPlayer, atKey, verb) {
+    host.innerHTML = "";
+    const players = Object.keys(byPlayer || {});
+    if (!players.length) host.append(el("p", { className: "empty", textContent: "None yet." }));
+    for (const p of players) {
+      const list = byPlayer[p];
+      const sum = (k) => list.reduce((a, u) => a + (u[k] || 0), 0);
+      const from = Math.min(...list.map((u) => u.from || Infinity)), to = Math.max(...list.map((u) => u.to || 0));
+      const det = el("details", { className: "batches" }, el("summary", { textContent: `${list.length} upload${list.length > 1 ? "s" : ""}` }));
+      for (const u of list.slice().reverse())
+        det.append(el("div", { className: "batch" },
+          el("div", { className: "row" }, el("span", { className: "muted", textContent: `${verb} ${when(u[atKey])}, uploaded ${when(u.at)}` }),
+            previewButton(u)), facts(u)));
+      host.append(el("div", { className: "card" },
+        el("div", { className: "row" }, el("span", { className: "who", textContent: list[0].player || p }),
+          el("span", { className: "muted", textContent: `${sum("events")} events · ${sum("drops")} drops · ${sizeText(sum("size"), sum("stored"))} · ` +
+            `${day(isFinite(from) ? from : 0)} – ${day(to)}` })),
+        det));
+    }
+  }
+  // What's in an upload (preview.py on the server): runs, outside zones, mobs, items. Read only.
+  const gold = (cu) => !cu ? "–" : cu >= 10000 ? `${Math.floor(cu / 10000)}g ${Math.floor(cu / 100) % 100}s` : `${Math.floor(cu / 100)}s ${cu % 100}c`;
+  const mins = (a, b) => a && b && b > a ? `${Math.round((b - a) / 60)} min` : "–";
+  const time = (t) => t ? new Date(t * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "–";
+  function previewButton(u) {
+    const b = el("button", { textContent: "Show what's in it" });
+    b.onclick = async () => {
+      const card = b.closest(".card, .batch");
+      const old = card.querySelector(":scope > .preview");
+      if (old) { old.remove(); b.textContent = "Show what's in it"; return; }
+      b.disabled = true; b.textContent = "Reading the file…";
+      try { card.append(showPreview(u, await api("preview?id=" + encodeURIComponent(u.id)))); b.textContent = "Hide"; }
+      catch (e) { note(`Couldn't read ${u.player}'s upload: ${e.message}`); b.textContent = "Show what's in it"; }
+      b.disabled = false;
+    };
+    return b;
+  }
+  // What's in an upload (preview.py): mobs, items, boss fights. Names come from Wowhead on the public site, so IDs here.
+  const WOWHEAD = "https://www.wowhead.com";  // same address as site/index.html; TODO 3.5 confirms it for Forever
+  function showPreview(u, p) {
+    const box = el("div", { className: "preview" });
+    box.append(el("p", { textContent: `${p.events} events: ${p.new} new, ${p.known} already in ${u.player}'s other approved uploads (${p.approvedBatches}).` }));
+    const list = (title, rows) => {
+      const d = el("details", {}, el("summary", { textContent: `${title} (${rows.length})` }));
+      for (const r of rows) d.append(el("div", { className: "small" }, r));
+      box.append(d);
+    };
+    const link = (kind, id, text) => el("a", { href: `${WOWHEAD}/${kind}=${id}`, target: "_blank", rel: "noopener", textContent: text });
+    list("Mobs", p.mobs.map((m) => el("span", {}, link("npc", m.id, m.name || `NPC ${m.id}`), ` ${m.corpses} corpses`)));
+    list("Items", p.items.map((i) => el("span", { className: `q${i.q ?? 1}` }, link("item", i.id, `item ${i.id}`), ` ×${i.n}`)));
+    list("Boss fights", p.bosses.map((b) => el("span", { textContent: `${b.name || b.encounter}: ${b.ok ? "killed" : "wipe"}${b.inst ? `, ${b.inst}` : ""}` })));
+    return box;
+  }
+  async function act(action, u, done) {
+    try { await api(action, { id: u.id }); note(done); } catch (e) { note(e.message); }
+    load();
+  }
+  async function load() {
+    try { render(await api("list")); } catch (e) { note(`Couldn't load: ${e.message}`); }
+  }
+  $("new-code").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const j = await api("code", { name: $("new-name").value.trim() });
+      $("new-name").value = "";
+      note(`Made a code for ${j.name}. Use "Copy link" below to send it.`);
+    } catch (err) { note(err.message); }
+    load();
+  });
+  load();
+</script>
+</body>
+</html>

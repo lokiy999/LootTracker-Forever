@@ -1,7 +1,7 @@
 # LootTracker-Forever
 Loot tracking addon for WoW Forever, with an upload service and website for community drop rates and personal loot history.
 
-Status: planning. Nothing is built yet; the plan, in order, is [docs/TODO.md](docs/TODO.md).
+Status: drafts of the addon, upload service and site, not tested in game and not deployed. The plan, in order, is [docs/TODO.md](docs/TODO.md).
 
 ## Layout
 
@@ -32,3 +32,5 @@ has its own projects, and nothing here should be copied back into them or the ot
 - Plan and open items: `docs/TODO.md`, worked top to bottom; tick items with `[x]`.
 - What changed and when: add an entry at the bottom of `docs/HISTORY.md` with every change.
 - Each folder's README says how that part is built and deployed once it exists.
+- Tests: `python addon/test/harness.py` (needs `lupa`, run on the PC) and `python3 server/test_flow.py` (on the server, uses a throwaway folder and port 8799).
+- Upload service: `server/`, data in `~/forever-data`, port 8767, service `loot-upload-forever`. Site: copy `site/` to `/var/www/forever`.

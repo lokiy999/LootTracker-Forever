@@ -1,0 +1,6 @@
+## Interface: 16001
+## Title: LootProbe (Forever test)
+## Notes: Writes down what WoW Forever lets an addon see. Test build, for TODO step 3.
+## SavedVariables: LootProbeDB
+
+LootProbe.lua
