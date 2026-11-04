@@ -7,9 +7,9 @@ touches V+: own repo, own addon, own upload service, own data folder, own site f
 **Work top to bottom.** Each step only needs the steps above it. Items marked **(Lokiy)** need you (an account, a
 sudo command, a GitHub click or a decision); everything else Claude can do.
 
-How to edit: this file is `/home/lokiy/forever/TODO.md` on the server (git repo in `/home/lokiy/forever`; after
-step 1 it moves to `docs/TODO.md` of the new GitHub repo). Tick items with `[x]`, add new ones in the step where they
-belong, then commit (and push once the repo exists). Until step 1.4 it is not on the admin "Open items" page.
+How to edit: this file is `docs/TODO.md` in https://github.com/lokiy999/LootTracker-Forever (on the server:
+`/home/lokiy/forever`). Tick items with `[x]`, add new ones in the step where they belong, then commit and push. Until
+step 1.4 it is not on the admin "Open items" page.
 
 Background (research 2026-11-04):
 - Forever runs on the modern (Mainline / Midnight) addon API, including Midnight's addon restrictions ("secret
@@ -22,11 +22,11 @@ Background (research 2026-11-04):
   shown back per user. Run it next to ours; don't build on it.
 
 ## 1. Repo setup
-- [ ] 1.1 **(Lokiy)** Create an empty GitHub repo, e.g. `lokiy999/LootTracker-Forever` (private or public).
-- [ ] 1.2 Claude makes a deploy key on the server (`~/.ssh/github_forever` + a `Host github-forever` entry in
+- [x] 1.1 **(Lokiy)** Create an empty GitHub repo, e.g. `lokiy999/LootTracker-Forever` (private or public).
+- [x] 1.2 Claude makes a deploy key on the server (`~/.ssh/github_forever` + a `Host github-forever` entry in
       `~/.ssh/config`, like `github-wowsims` for the sim). **(Lokiy)** adds the public key in the repo under
       Settings > Deploy keys, with write access.
-- [ ] 1.3 Move `/home/lokiy/forever` into the repo layout and push:
+- [x] 1.3 Move `/home/lokiy/forever` into the repo layout and push:
       `addon/` (the addon), `server/` (upload service + build scripts), `site/` (loot page), `docs/` (this TODO,
       HISTORY.md, how to edit). Add a README with the V+ / Forever split.
 - [ ] 1.4 **(Lokiy, in the hub)** Add the repo's `docs/TODO.md` to `tools/todo.py` in `lokiy-dev-vplus`, so it shows

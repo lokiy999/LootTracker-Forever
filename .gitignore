@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.bak*
+# upload data and build output never go into the repo
+server/data/
