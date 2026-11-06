@@ -18,6 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from luadata import Parser, as_list  # noqa: E402
+from validate import character  # noqa: E402
 
 DATA = sys.argv[1] if len(sys.argv) > 1 else "/home/lokiy/forever-data"
 OUT = sys.argv[2] if len(sys.argv) > 2 else "/var/www/forever/loot.json"
@@ -29,9 +30,8 @@ def events():
     for path in sorted(glob.glob(os.path.join(DATA, "approved", "*", "*.lua.gz"))):
         with gzip.open(path, "rt", encoding="utf-8") as f:
             db = Parser(f.read()).parse_file()["LootTrackerForeverDB"]
-        who = f"{db['player']}-{db['realm']}"
         for e in as_list(db.get("events")):
-            e["uploader"] = e.get("char") or who
+            e["uploader"] = e.get("char") or character(db, e["id"].rsplit(":", 1)[0])
             e["wowhead"] = db.get("via") == "wowhead"
             out.setdefault(e["id"], e)
     # Our addon and Wowhead's see the same corpses: for a character's day, the addon's record wins

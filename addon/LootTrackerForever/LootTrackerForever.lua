@@ -4,7 +4,7 @@
 -- DRAFT: replayed against real LootProbe data, but this addon itself hasn't run in game yet (TODO 4.7).
 
 local ADDON = "LootTrackerForever"
-local VERSION = "0.2.0"
+local VERSION = "0.3.0"
 
 local issecret = issecretvalue or function() return false end
 
@@ -273,15 +273,33 @@ local function makeWindow()
 	refresh()
 end
 
+-- The save file is shared by the whole account: the window's numbers are this character's, worked out from its events
+local function countStats()
+	local s = { kills = 0, corpses = 0, items = 0, copper = 0 }
+	local prefix = myGuid .. ":"
+	for _, ev in ipairs(db.events) do
+		if ev.id and ev.id:sub(1, #prefix) == prefix then
+			if ev.type == "kill" then
+				s.kills = s.kills + 1
+			elseif ev.type == "loot" then
+				if ev.src == "mob" and not ev.how then s.corpses = s.corpses + 1 end
+				s.items = s.items + #(ev.items or {})
+				s.copper = s.copper + (ev.copper or 0)
+			end
+		end
+	end
+	return s
+end
+
 local function start()
 	LootTrackerForeverDB = LootTrackerForeverDB or {}
 	db = LootTrackerForeverDB
 	db.format, db.game = 1, "forever"
 	db.seq, db.session = db.seq or 0, (db.session or 0) + 1
 	db.events, db.settings = db.events or {}, db.settings or {}
-	db.stats = db.stats or { kills = 0, corpses = 0, items = 0, copper = 0 }
 	me, realm, myGuid = UnitName("player"), GetRealmName(), UnitGUID("player")
 	db.guid = myGuid
+	db.stats = countStats()
 	for _, spell in ipairs(GATHER_SPELLS) do
 		local name = C_Spell and C_Spell.GetSpellName(spell)
 		if name then gatherNames[name] = true end
@@ -290,6 +308,8 @@ local function start()
 	local _, _, _, interface = GetBuildInfo()
 	db.realm, db.player, db.faction, db.class = realm, me, UnitFactionGroup("player"), class
 	db.addon, db.interface = VERSION, interface
+	db.chars = db.chars or {}
+	db.chars[myGuid] = { player = me, realm = realm, faction = db.faction, class = class }
 	setupPatterns()
 	makeWindow()
 	add({ type = "login", session = db.session })
@@ -328,9 +348,9 @@ SlashCmdList.LOOTTRACKERFOREVER = function(msg)
 	if msg == "reset confirm" then
 		db.events, db.stats = {}, { kills = 0, corpses = 0, items = 0, copper = 0 }
 		refresh()
-		print("LootTracker Forever: data cleared. Only do this after your upload is safe.")
+		print("LootTracker Forever: data cleared for every character. Only do this after your upload is safe.")
 	elseif msg == "reset" then
-		print("LootTracker Forever: this deletes everything not uploaded yet. Type /ltf reset confirm to do it.")
+		print("LootTracker Forever: this deletes everything not uploaded yet, on every character. Type /ltf reset confirm to do it.")
 	else
 		db.settings.hidden = window:IsShown()
 		window:SetShown(not db.settings.hidden)

@@ -40,3 +40,11 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
 - `server/cron.sh` installed in the crontab (Lokiy's yes, 2026-11-05) and fixed: tar failed if any file didn't exist yet.
 - The addon stays private (Lokiy, 2026-11-05): password-protected zips at forever.lokiy.dev/admin/.
 - The site and upload service still aren't live. The addon itself hasn't run in the game.
+
+## 2026-11-06: One save file, several characters
+- The addon's first real save file (435 kills, 422 loot records, no errors) held two characters and would have been
+  refused: `validate.py` expected every event to belong to one. WoW keeps the file per account.
+- `addon/LootTrackerForever/` 0.3.0: `chars` names every character, and the window's numbers are the current
+  character's, worked out from its events at login. `/ltf reset confirm` says it clears every character.
+- `server/validate.py`, `build_site.py`: each event is credited to the character in its id. Events from before 0.3.0 keep
+  the character's ID until that character logs in once.

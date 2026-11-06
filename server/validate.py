@@ -12,6 +12,7 @@ checks; {"converted": true} then says to keep that file instead of the upload.
 import json
 import math
 import os
+import re
 import resource
 import sys
 import time
@@ -28,11 +29,12 @@ MAX_STRING = 200
 MIN_TIME = 1767225600               # 2026-01-01: earlier timestamps are wrong
 FUTURE_SLACK = 2 * 86400
 
-TOP_KEYS = {"format", "game", "realm", "player", "guid", "faction", "class", "addon", "interface", "seq", "session",
+TOP_KEYS = {"format", "game", "realm", "player", "guid", "chars", "faction", "class", "addon", "interface", "seq", "session",
             "settings", "events", "stats", "skipped", "errors", "lastError", "via", "converted"}
 EVENT_TYPES = {"loot", "kill", "boss", "got", "won", "login"}
 SOURCES = {"mob", "object", "other"}
 KILLERS = {"me", "party", "pet"}
+EVENT_ID = re.compile(r"^(Player-\d+-\w+):\d+$")  # the file is shared by an account: each event names its character
 
 
 class Refused(Exception):
@@ -70,6 +72,17 @@ def walk(v, depth=0, count=None):
     return count[0]
 
 
+def character(db, guid):
+    """"Name-Realm" of a character in the file. One the file has no name for keeps its ID: see docs/FORMAT.md."""
+    if guid == db.get("guid"):
+        return f"{db['player']}-{db['realm']}"
+    c = db.get("chars")
+    c = c.get(guid) if isinstance(c, dict) else None
+    if isinstance(c, dict) and isinstance(c.get("player"), str) and isinstance(c.get("realm"), str):
+        return f"{c['player']}-{c['realm']}"
+    return guid
+
+
 def wowhead(top):
     """A Wowhead Looter file -> our table, or a refusal. Its own keys all start with wl."""
     need(all(k.startswith("wl") for k in top), "This isn't a Wowhead Looter save file.")
@@ -104,12 +117,9 @@ def summarize(text, converted_out=None):
     for k in ("realm", "player"):
         need(isinstance(db.get(k), str) and db[k], f"The file has no {k}.")
 
-    if via_wowhead:
-        prefix = "wl:"
-    else:
+    if not via_wowhead:
         need(db.get("via") is None, "This isn't a LootTracker Forever save file.")
         need(isinstance(db.get("guid"), str) and db["guid"].startswith("Player-"), "The file has no character ID.")
-        prefix = db["guid"] + ":"
     kinds, ids, times, chars = {}, set(), [], set()
     corpses = items = bosses = kills = 0
     for e in as_list(db.get("events")):
@@ -117,8 +127,14 @@ def summarize(text, converted_out=None):
         kind = e.get("type")
         need(kind in EVENT_TYPES, "An event has an unknown type.")
         eid = e.get("id")
-        need(isinstance(eid, str) and eid.startswith(prefix), "An event doesn't belong to this character.")
-        chars.add(e.get("char") or f"{db['player']}-{db['realm']}")
+        need(isinstance(eid, str), "An event has no id.")
+        if via_wowhead:
+            need(eid.startswith("wl:"), "An event doesn't belong to this file.")
+            chars.add(e.get("char"))
+        else:
+            m = EVENT_ID.match(eid)
+            need(m, "An event doesn't belong to a character.")
+            chars.add(character(db, m.group(1)))
         need(eid not in ids, "Two events have the same id.")
         ids.add(eid)
         t = e.get("t")

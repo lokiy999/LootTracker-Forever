@@ -101,7 +101,7 @@ def main():
             "code": b'LootTrackerForeverDB = { format = 1, game = "forever", x = os.execute("id") }',
             "function": b'LootTrackerForeverDB = function() end',
             "other game": save().replace(b'"forever"', b'"classic"'),
-            "other character": save().replace(b'id = "Player-1-Tester:', b'id = "Player-1-Mallory:'),
+            "not a character": save().replace(b'id = "Player-1-Tester:', b'id = "Mallory:'),
             "bad killer": save().replace(b'by = "party"', b'by = "boss"'),
             "forged wowhead": save().replace(b'["format"] = 1', b'["via"] = "wowhead", ["format"] = 1'),
             "other game wowhead": wowhead(version=11508),
@@ -147,14 +147,25 @@ def main():
             assert call("POST", "/admin/api/approve", {"id": uid})[0] == 200
         assert os.path.exists(os.path.join(data, "wowhead-raw", "Tester", uid + ".lua.gz"))
 
+        # Two characters in one file (it's shared by the account): each gets its own events, with or without a name
+        s, r = call("POST", "/admin/api/code", {"name": "Account"})
+        code2 = r["code"]
+        two = save("Fourth").replace(b'["format"] = 1,', b'["format"] = 1, ["chars"] = { ["Player-1-Alt"] = { player = "Alt", realm = "Testrealm" } },')
+        two = two.replace(b'id = "Player-1-Fourth:2"', b'id = "Player-1-Alt:2"').replace(b'id = "Player-1-Fourth:3"', b'id = "Player-1-Nameless:3"')
+        s, r = call("POST", "/upload/api/upload", two, code2)
+        assert s == 200 and r["summary"]["characters"] == ["Alt-Testrealm", "Fourth-Testrealm", "Player-1-Nameless"], r
+        uid5 = call("GET", "/admin/api/list")[1]["queue"][0]["id"]
+        assert call("POST", "/admin/api/approve", {"id": uid5})[0] == 200
+
         out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(data, "loot.json")
         subprocess.run([sys.executable, os.path.join(HERE, "build_site.py"), data, out], check=True)
         with open(out, encoding="utf-8") as f:
             d = json.load(f)
         # 2 corpses each, not 6; plus one empty kill of each player's; plus Wowhead's corpse, once
-        assert d["totals"]["corpses"] == 5 and d["uploaders"] == 3 and d["totals"]["kills"] == 7, d["totals"]
+        assert d["totals"]["corpses"] == 7 and d["uploaders"] == 6 and d["totals"]["kills"] == 10, d["totals"]
+        assert {"Alt-Testrealm", "Player-1-Nameless", "Fourth-Testrealm"} <= {p["name"] for p in d["players"]}
         hog = d["mobs"][0]
-        assert (hog["id"], hog["kills"], hog["corpses"], hog["empty"], hog["copper"]) == (448, 6, 4, 2, 400), hog
+        assert (hog["id"], hog["kills"], hog["corpses"], hog["empty"], hog["copper"]) == (448, 9, 6, 3, 600), hog
         zombie = next(m for m in d["mobs"] if m["id"] == 1502)
         assert (zombie["kills"], zombie["name"], zombie["copper"]) == (1, "Wretched Zombie", 3), zombie
         assert next(z for z in d["zones"] if z["name"] == "Tirisfal Glades")["corpses"] == 1
@@ -169,9 +180,9 @@ def main():
         subprocess.run([sys.executable, os.path.join(HERE, "build_site.py"), data, out], check=True)
         with open(out, encoding="utf-8") as f:
             hog = json.load(f)["mobs"][0]
-        assert (hog["corpses"], hog["kills"]) == (5, 8), hog
-        assert next(x for x in hog["drops"] if x["id"] == 2589)["times"] == 6, hog
-        assert d["bosses"][0]["kills"] == 2 and d["bosses"][0]["wipes"] == 2 and d["bosses"][0]["bestSecs"] == 95
+        assert (hog["corpses"], hog["kills"]) == (7, 11), hog
+        assert next(x for x in hog["drops"] if x["id"] == 2589)["times"] == 8, hog
+        assert d["bosses"][0]["kills"] == 3 and d["bosses"][0]["wipes"] == 3 and d["bosses"][0]["bestSecs"] == 95
         print("ok: refusals, review, approve, duplicate events, site build")
     finally:
         srv.terminate()

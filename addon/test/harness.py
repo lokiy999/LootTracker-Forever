@@ -183,6 +183,29 @@ def tracker():
     return lua
 
 
+def characters():
+    """The save file is shared by the account: two characters keep their own events and window numbers."""
+    lua = runtime()
+    lua.execute('''LootTrackerForeverDB = {format = 1, game = "forever", seq = 2, session = 1, player = "Old", guid = "Player-1-OLD",
+        stats = {kills = 99, corpses = 99, items = 99, copper = 99},
+        events = {{id = "Player-1-OLD:1", type = "kill", npc = 1}, {id = "Player-1-OLD:2", type = "loot", src = "mob", npc = 1, items = {{id = 5}}, copper = 9}}}''')
+    load(lua, "../LootTrackerForever/LootTrackerForever.lua")
+    M = "Player-1-ABC"
+    lua.execute(f'''fire("ADDON_LOADED", "LootTrackerForever"); fire("PLAYER_LOGIN")
+      target_guid = "Creature-0-1-2-3-448-0001"
+      fire("PARTY_KILL", "{M}", target_guid)
+      loot = {{{{money = true, count = 5, guid = target_guid}}}}
+      fire("LOOT_READY", true)''')
+    db = lua.eval("LootTrackerForeverDB")
+    assert (db.stats.kills, db.stats.corpses, db.stats["items"], db.stats.copper) == (1, 1, 0, 5), dict(db.stats)
+    assert db.chars[M].player == "Tester" and db.chars[M]["class"] == "MAGE", dict(db.chars[M])
+    ids = [db.events[i].id for i in range(1, len(db.events) + 1)]
+    assert ids[:3] == ["Player-1-OLD:1", "Player-1-OLD:2", M + ":3"], ids
+    # the window's numbers survive a login, worked out from the events
+    lua.execute('fire("PLAYER_LOGIN")')
+    assert (lua.eval("LootTrackerForeverDB").stats.kills) == 1
+
+
 def secrets():
     """Secret loot data and chat lines lose that record, never raise."""
     lua = runtime()
@@ -221,7 +244,8 @@ def probe():
 
 if __name__ == "__main__":
     tracker()
+    characters()
     secrets()
     probe()
-    print("ok: tracker, secret values, probe")
+    print("ok: tracker, characters, secret values, probe")
     sys.exit(0)

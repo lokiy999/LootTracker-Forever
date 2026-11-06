@@ -1,23 +1,28 @@
 # Save file format (version 1)
 
 What `LootTrackerForever.lua` (WTF\Account\<account>\SavedVariables) holds. `server/validate.py` accepts exactly this;
-anything else is refused, V+ `LootTrackerDB` files included. **Draft:** based on real data (`FINDINGS.md`), but not yet
-saved by the addon in game (TODO 4.7). A Wowhead Looter upload is converted to this too (`WOWHEAD.md`).
+anything else is refused, V+ `LootTrackerDB` files included. **Draft:** the addon's real save files fit it, but boss
+fights aren't tested yet (TODO 4.7). A Wowhead Looter upload is converted to this too (`WOWHEAD.md`).
 
 ```lua
 LootTrackerForeverDB = {
   format = 1,               -- this document
   game = "forever",         -- refused if not exactly this
   realm = "Realm", player = "Name", faction = "Alliance", class = "MAGE",
-  guid = "Player-6949-00A39D60", -- who this is: name + realm may not be unique on Forever
-  addon = "0.2.0", interface = 16001,
+  guid = "Player-6949-00A39D60", -- the character that last saved: name + realm may not be unique on Forever
+  chars = { ["Player-6949-00A39D60"] = { player = "Name", realm = "Realm", faction = "Alliance", class = "MAGE" } },
+  addon = "0.3.0", interface = 16001,
   seq = 12,                 -- last event number used
   session = 3,              -- logins so far
   settings = { ... },       -- window position; not read by the site
-  stats = { ... },          -- the window's running totals; not read by the site
+  stats = { ... },          -- the current character's window totals, worked out from its events; not read by the site
   events = { ... },         -- oldest first
 }
 ```
+
+The file belongs to the account, not a character: every character on the account writes to the same `events`, and each
+event's `id` says whose it is. `chars` names each one the first time it logs in with version 0.3.0 or later; until
+then, older events stay credited to the character's ID.
 
 Every event has `id` (`<guid>:seq`, unique, so an event in two uploads counts once), `t` (server time), `type`, `zone`
 (name), `map` (uiMapID), and inside an instance `inst` (instance name), `instId`, `diff` (difficulty name).
