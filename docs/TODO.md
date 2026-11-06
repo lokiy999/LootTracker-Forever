@@ -69,7 +69,7 @@ Background (research 2026-11-04):
 - [x] 5.2 Validation: realm/game type must be Forever and the format from 4.1; reject V+ files.
 - [x] 5.3 Copy and adapt the build scripts (`build_loot.py`, `export_json.py`, `enrich.py`) to the new format; test
       with the save file from 4.7.
-- [ ] 5.4 **(Lokiy, sudo)** Install the systemd unit: `sudo bash ~/forever/server/service_add.sh`.
+- [x] 5.4 **(Lokiy, sudo)** Install the systemd unit: `sudo bash ~/forever/server/service_add.sh`.
 - [x] 5.5 **(Lokiy, sudo)** Caddy: `sudo bash ~/forever/server/caddy_add.sh` (adds forever.lokiy.dev, `/var/www/forever`, upload routes on port 8767, reloads).
 - [x] 5.6 Copy the admin approve/reject page (`/admin/loot`) as a Forever version (if 2.3 says approval).
 - [x] 5.7 Cron job for the Forever rebuild, separate from `sync_db.sh` (no item database step): `server/cron.sh`, every 5 minutes.
