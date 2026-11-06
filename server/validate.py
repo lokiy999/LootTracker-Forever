@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Check an uploaded LootTrackerForever.lua and print a JSON summary (or the reason it's refused).
+"""Check an uploaded LootTrackerForever.lua or +Wowhead_Looter.lua and print a JSON summary (or why it's refused).
 
-    python3 -I validate.py <file>     -> stdout: {"ok": true, "summary": {...}} or {"ok": false, "error": "..."}
+    python3 -I validate.py <file> [converted out]
+        -> stdout: {"ok": true, "summary": {...}} or {"ok": false, "error": "..."}
 
 server.py runs this in its own process with a time and memory limit. The file is read as Lua *data* (luadata.py, never
 run) and must be exactly the table in docs/FORMAT.md: game "forever", format 1. A V+ LootTracker.lua is refused.
+A Wowhead Looter file is converted first (convert_wowhead.py) and the result, written to [converted out], gets the same
+checks; {"converted": true} then says to keep that file instead of the upload.
 """
 import json
 import math
@@ -14,6 +17,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from convert_wowhead import NotForever, convert, is_wowhead, to_lua  # noqa: E402
 from luadata import Parser, as_list  # noqa: E402
 
 MEMORY_LIMIT = 1024 * 1024 * 1024  # bytes of address space for this process
@@ -24,10 +28,11 @@ MAX_STRING = 200
 MIN_TIME = 1767225600               # 2026-01-01: earlier timestamps are wrong
 FUTURE_SLACK = 2 * 86400
 
-TOP_KEYS = {"format", "game", "realm", "player", "faction", "class", "addon", "interface", "seq", "session", "settings",
-            "events", "stats", "skipped", "errors", "lastError"}
-EVENT_TYPES = {"loot", "boss", "got", "won", "login"}
+TOP_KEYS = {"format", "game", "realm", "player", "guid", "faction", "class", "addon", "interface", "seq", "session",
+            "settings", "events", "stats", "skipped", "errors", "lastError", "via", "converted"}
+EVENT_TYPES = {"loot", "kill", "boss", "got", "won", "login"}
 SOURCES = {"mob", "object", "other"}
+KILLERS = {"me", "party", "pet"}
 
 
 class Refused(Exception):
@@ -65,7 +70,18 @@ def walk(v, depth=0, count=None):
     return count[0]
 
 
-def summarize(text):
+def wowhead(top):
+    """A Wowhead Looter file -> our table, or a refusal. Its own keys all start with wl."""
+    need(all(k.startswith("wl") for k in top), "This isn't a Wowhead Looter save file.")
+    try:
+        return convert(top)
+    except NotForever as e:
+        raise Refused(str(e))
+    except (AttributeError, KeyError, TypeError, ValueError, IndexError):
+        raise Refused("This Wowhead Looter file can't be read.")
+
+
+def summarize(text, converted_out=None):
     try:
         top = Parser(text).parse_file()
     except RecursionError:
@@ -73,8 +89,12 @@ def summarize(text):
     except (ValueError, IndexError, KeyError, TypeError) as e:
         raise Refused(f"This isn't a LootTracker Forever save file (it can't be read: {str(e)[:80]}).")
     need("LootTrackerDB" not in top, "This is the Vanilla+ LootTracker's file. Upload that one on lokiy.dev/loot/upload.")
-    need(list(top) == ["LootTrackerForeverDB"], "This isn't a LootTracker Forever save file (it must hold only LootTrackerForeverDB).")
-    db = top["LootTrackerForeverDB"]
+    via_wowhead = is_wowhead(top)
+    if via_wowhead:
+        db = wowhead(top)
+    else:
+        need(list(top) == ["LootTrackerForeverDB"], "This isn't a LootTracker Forever save file (it must hold only LootTrackerForeverDB).")
+        db = top["LootTrackerForeverDB"]
     need(isinstance(db, dict), "LootTrackerForeverDB is empty or not a table.")
     nodes = walk(db)
     unknown = sorted(set(db) - TOP_KEYS)
@@ -84,15 +104,21 @@ def summarize(text):
     for k in ("realm", "player"):
         need(isinstance(db.get(k), str) and db[k], f"The file has no {k}.")
 
-    kinds, ids, times = {}, set(), []
-    corpses = items = bosses = 0
-    prefix = f"{db['player']}-{db['realm']}:"
+    if via_wowhead:
+        prefix = "wl:"
+    else:
+        need(db.get("via") is None, "This isn't a LootTracker Forever save file.")
+        need(isinstance(db.get("guid"), str) and db["guid"].startswith("Player-"), "The file has no character ID.")
+        prefix = db["guid"] + ":"
+    kinds, ids, times, chars = {}, set(), [], set()
+    corpses = items = bosses = kills = 0
     for e in as_list(db.get("events")):
         need(isinstance(e, dict), "An event has the wrong shape.")
         kind = e.get("type")
         need(kind in EVENT_TYPES, "An event has an unknown type.")
         eid = e.get("id")
         need(isinstance(eid, str) and eid.startswith(prefix), "An event doesn't belong to this character.")
+        chars.add(e.get("char") or f"{db['player']}-{db['realm']}")
         need(eid not in ids, "Two events have the same id.")
         ids.add(eid)
         t = e.get("t")
@@ -104,21 +130,29 @@ def summarize(text):
             need(e.get("npc") is None or (is_int(e["npc"]) and e["npc"] > 0), "A loot event has an invalid NPC ID.")
             need(e.get("obj") is None or (is_int(e["obj"]) and e["obj"] > 0), "A loot event has an invalid object ID.")
             need(is_int(e.get("copper", 0)) and 0 <= e.get("copper", 0) < 10 ** 10, "A loot event has invalid money.")
-            corpses += e["src"] == "mob"
+            corpses += e["src"] == "mob" and not e.get("how")
             for it in as_list(e.get("items")):
                 need(isinstance(it, dict) and is_int(it.get("id")) and it["id"] > 0, "A looted item has no valid item ID.")
                 need(is_int(it.get("count", 1)) and 0 < it.get("count", 1) < 10000, "A looted item has an invalid stack size.")
                 need(it.get("q") is None or (is_int(it["q"]) and 0 <= it["q"] <= 8), "A looted item has an invalid quality.")
                 items += 1
+        elif kind == "kill":
+            need(is_int(e.get("npc")) and e["npc"] > 0, "A kill has an invalid NPC ID.")
+            need(e.get("by") in KILLERS, "A kill has an unknown killer.")
+            need(e.get("tap") in (None, 0, 1), "A kill has an invalid tag.")
+            kills += 1
         elif kind == "boss":
             bosses += 1
         elif kind in ("got", "won"):
             need(is_int(e.get("item")) and e["item"] > 0, "A loot line has no valid item ID.")
-    need(corpses or items or bosses, "The file has no loot data yet.")
-    return {"format": db["format"], "characters": [f"{db['player']}-{db['realm']}"], "corpses": corpses, "items": items,
+    need(corpses or items or bosses or kills, "The file has no loot data yet.")
+    if via_wowhead and converted_out:
+        with open(converted_out, "w", encoding="utf-8") as f:
+            f.write(to_lua(db))
+    return {"format": db["format"], "characters": sorted(chars), "corpses": corpses, "items": items, "kills": kills,
             "bosses": bosses, "events": sum(kinds.values()), "eventTypes": kinds,
             "addons": [str(db.get("addon"))[:20]], "from": min(times), "to": max(times), "values": nodes,
-            "skipped": db.get("skipped") or 0}
+            "skipped": db.get("skipped") or 0, "via": db.get("via")}
 
 
 def main():
@@ -131,7 +165,9 @@ def main():
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
             raise Refused("This isn't a LootTracker Forever save file (it isn't text).")
-        out = {"ok": True, "summary": summarize(text)}
+        out = {"ok": True, "summary": summarize(text, sys.argv[2] if len(sys.argv) > 2 else None)}
+        if out["summary"]["via"] == "wowhead":
+            out["converted"] = True
     except Refused as e:
         out = {"ok": False, "error": str(e)}
     print(json.dumps(out))

@@ -32,10 +32,12 @@ def main():
         known = set()
         for other in sys.argv[2:]:
             known |= {e.get("id") for e in as_list(load_db(other).get("events"))}
-        mobs, items, bosses = {}, {}, []
+        mobs, items, bosses, kills = {}, {}, [], 0
         for e in events:
-            if e["type"] == "loot":
-                if e.get("npc"):
+            if e["type"] == "kill":
+                kills += 1
+            elif e["type"] == "loot":
+                if e.get("npc") and not e.get("how"):
                     m = mobs.setdefault(e["npc"], {"id": e["npc"], "name": e.get("name"), "corpses": 0})
                     m["corpses"] += 1
                     m["name"] = m["name"] or e.get("name")
@@ -46,7 +48,7 @@ def main():
                 bosses.append({k: e.get(k) for k in ("name", "encounter", "ok", "inst")})
         new = sum(e.get("id") not in known for e in events)
         out = {"ok": True, "preview": {
-            "events": len(events), "new": new, "known": len(events) - new, "approvedBatches": len(sys.argv) - 2,
+            "events": len(events), "kills": kills, "new": new, "known": len(events) - new, "approvedBatches": len(sys.argv) - 2,
             "mobs": sorted(mobs.values(), key=lambda m: -m["corpses"]),
             "items": sorted(items.values(), key=lambda i: (-(i["q"] or 0), -i["n"])), "bosses": bosses}}
     except (OSError, ValueError, KeyError, TypeError, IndexError) as e:

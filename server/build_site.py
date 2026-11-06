@@ -3,9 +3,11 @@
 
     python3 build_site.py [data dir] [output file]
 
-Reads approved/<player>/*.lua.gz. Events are unique by id, so an event in two uploads counts once. The drop rate basis
-is per corpse looted (draft, TODO 3.4): there's no combat log on Forever. Item and NPC names aren't here: the page gets
-them from Wowhead by ID.
+Reads approved/<player>/*.lua.gz. Events are unique by id, so an event in two uploads counts once. Item names aren't
+here: the page gets them from Wowhead by ID.
+
+The drop rate basis is per kill (docs/FINDINGS.md): a kill is a looted corpse, or a kill that left nothing. Group kills
+only count once looted: the rest may have gone to someone else, so "empty" can only be known playing alone.
 """
 import glob
 import gzip
@@ -29,14 +31,33 @@ def events():
             db = Parser(f.read()).parse_file()["LootTrackerForeverDB"]
         who = f"{db['player']}-{db['realm']}"
         for e in as_list(db.get("events")):
-            e["uploader"] = who
+            e["uploader"] = e.get("char") or who
+            e["wowhead"] = db.get("via") == "wowhead"
             out.setdefault(e["id"], e)
-    return out
+    # Our addon and Wowhead's see the same corpses: for a character's day, the addon's record wins
+    days = {(e["uploader"], e["t"] // 86400) for e in out.values() if not e["wowhead"] and e["type"] == "loot"}
+    return {k: e for k, e in out.items() if not (e["wowhead"] and (e["uploader"], e["t"] // 86400) in days)}
+
+
+def is_empty_kill(e):
+    """A kill worth counting with no loot event: solo, not ours to doubt, and nothing left on the corpse."""
+    if e.get("by") == "party" or e.get("grp") or e.get("left") or e.get("tap") == 0:
+        return False
+    return e.get("tap") == 1 or e.get("xp") == 1
 
 
 def build(evs):
     mobs, items, zones, bosses, players = {}, {}, {}, {}, {}
-    totals = {"corpses": 0, "objects": 0, "items": 0, "copper": 0, "bossKills": 0}
+    totals = {"kills": 0, "corpses": 0, "objects": 0, "gathered": 0, "items": 0, "copper": 0, "bossKills": 0}
+
+    def mob(npc, name):
+        m = mobs.setdefault(npc, {"id": npc, "name": name, "kills": 0, "corpses": 0, "empty": 0, "copper": 0, "drops": {}})
+        m["name"] = m["name"] or name
+        return m
+
+    # The same corpse can be looted twice (a reload, two group members): one kill, everything it dropped
+    looted = {(e["npc"], e["g"]) for e in evs if e["type"] == "loot" and e.get("npc") and e.get("g") and not e.get("how")}
+    counted = set()
     for e in evs:
         p = players.setdefault(e["uploader"], {"name": e["uploader"], "corpses": 0, "copper": 0, "items": {}})
         if e["type"] == "boss":
@@ -49,24 +70,41 @@ def build(evs):
                     b["bestSecs"] = e["secs"]
             else:
                 b["wipes"] += 1
+        if e["type"] == "kill" and (e["npc"], e.get("g")) not in looted and is_empty_kill(e):
+            m = mob(e["npc"], e.get("name"))
+            m["empty"] += 1
+            m["kills"] += 1
+            totals["kills"] += 1
         if e["type"] != "loot":
             continue
         place = e.get("inst") or e.get("zone") or "Unknown"
         z = zones.setdefault(place, {"name": place, "instance": bool(e.get("inst")), "corpses": 0, "items": 0, "copper": 0})
         copper = e.get("copper", 0)
+        if e.get("how"):  # skinning, pick pocketing, fishing, nodes: yours, but not what the mob dropped
+            totals["gathered"] += 1
+            for it in as_list(e.get("items")):
+                p["items"][it["id"]] = p["items"].get(it["id"], 0) + it.get("count", 1)
+                items.setdefault(it["id"], {"id": it["id"], "q": it.get("q"), "times": 0, "count": 0, "mobs": {}})
+            continue
         z["copper"] += copper
         p["copper"] += copper
         totals["copper"] += copper
         m = None
         if e.get("src") == "mob":
-            z["corpses"] += 1
-            p["corpses"] += 1
-            totals["corpses"] += 1
+            key = (e.get("npc"), e.get("g")) if e.get("g") else id(e)
+            fresh = key not in counted
+            counted.add(key)
+            if fresh:
+                z["corpses"] += 1
+                p["corpses"] += 1
+                totals["corpses"] += 1
+                totals["kills"] += 1
             if e.get("npc"):
-                m = mobs.setdefault(e["npc"], {"id": e["npc"], "name": e.get("name"), "corpses": 0, "copper": 0, "drops": {}})
-                m["corpses"] += 1
+                m = mob(e["npc"], e.get("name"))
+                if fresh:
+                    m["corpses"] += 1
+                    m["kills"] += 1
                 m["copper"] += copper
-                m["name"] = m["name"] or e.get("name")
         else:
             totals["objects"] += 1
         for it in as_list(e.get("items")):
@@ -85,13 +123,13 @@ def build(evs):
     for m in mobs.values():
         m["drops"] = sorted(m["drops"].values(), key=lambda d: (-(d["q"] or 0), -d["times"]))
     for i in items.values():
-        i["mobs"] = [{"id": n, "name": mobs[n]["name"], "times": t, "corpses": mobs[n]["corpses"]}
+        i["mobs"] = [{"id": n, "name": mobs[n]["name"], "times": t, "kills": mobs[n]["kills"]}
                      for n, t in sorted(i["mobs"].items(), key=lambda kv: -kv[1])]
     for p in players.values():
         p["items"] = [{"id": k, "count": v, "q": items[k]["q"]}
                       for k, v in sorted(p["items"].items(), key=lambda kv: (-(items[kv[0]]["q"] or 0), -kv[1]))]
     return {"updated": int(time.time()), "totals": totals, "uploaders": len(players),
-            "mobs": sorted(mobs.values(), key=lambda m: -m["corpses"]),
+            "mobs": sorted(mobs.values(), key=lambda m: -m["kills"]),
             "items": sorted(items.values(), key=lambda i: (-(i["q"] or 0), -i["times"])),
             "zones": sorted(zones.values(), key=lambda z: -z["corpses"]),
             "bosses": sorted(bosses.values(), key=lambda b: -b["kills"]),
@@ -104,7 +142,7 @@ def main():
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, OUT)
-    print(f"wrote {OUT}: {result['totals']['corpses']} corpses, {len(result['mobs'])} mobs, {len(result['items'])} items")
+    print(f"wrote {OUT}: {result['totals']['kills']} kills, {len(result['mobs'])} mobs, {len(result['items'])} items")
 
 
 if __name__ == "__main__":

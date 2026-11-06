@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Upload Loot Data</title>
-  <meta name="description" content="Send your LootTracker Forever data to forever.lokiy.dev.">
+  <meta name="description" content="Send your LootTracker Forever or Wowhead Looter data to forever.lokiy.dev.">
   <meta name="robots" content="noindex">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -65,12 +65,14 @@
   <a class="back" href="/">← Loot</a>
   <div class="crest">LootTracker Forever</div>
   <h1>Upload your loot data</h1>
-  <p>Send what your LootTracker Forever addon recorded. Lokiy checks every upload before it shows up on the site.</p>
+  <p>Send what your LootTracker Forever addon recorded, or your Wowhead Looter file if that's what you run. Lokiy checks
+    every upload before it shows up on the site.</p>
 
   <div class="card">
     <ol>
       <li><b>Log out</b> or type <code>/reload</code> in game: WoW only saves addon data then.</li>
-      <li>Find your file: <code>World of Warcraft\WTF\Account\&lt;ACCOUNT&gt;\SavedVariables\LootTrackerForever.lua</code></li>
+      <li>Find your file: <code>World of Warcraft\_forever_\WTF\Account\&lt;ACCOUNT&gt;\SavedVariables\LootTrackerForever.lua</code>
+        (or <code>+Wowhead_Looter.lua</code> in the same folder: only its loot is used, and it has less detail than our addon)</li>
       <li>Enter your upload code (from Lokiy), choose the file and press Upload.</li>
       <li>Once it says your file is safe on the server, you can clear your data in game with
         <code>/ltf reset confirm</code> so the file stays small. Your next upload then only holds what's new.</li>
@@ -80,7 +82,7 @@
   <form class="card" id="form">
     <label for="code">Upload code</label>
     <input type="text" id="code" autocomplete="off" spellcheck="false" placeholder="From Lokiy" required>
-    <label for="file">Your LootTrackerForever.lua</label>
+    <label for="file">Your LootTrackerForever.lua or +Wowhead_Looter.lua</label>
     <label class="drop" id="drop">
       <input type="file" id="file" accept=".lua">
       <span id="file-name">Click to choose the file, or drop it here</span>
@@ -143,7 +145,7 @@
     e.preventDefault();
     const code = $("code").value.trim();
     if (!file || !code) return;
-    if (!/\.lua$/i.test(file.name)) return show("bad", "Choose LootTrackerForever.lua from your SavedVariables folder.");
+    if (!/\.lua$/i.test(file.name)) return show("bad", "Choose LootTrackerForever.lua or +Wowhead_Looter.lua from your SavedVariables folder.");
     if (file.size > MAX_MB * 1024 * 1024) return show("bad", `The file is larger than ${MAX_MB} MB.`);
     $("send").disabled = true;
     show("wait", "Uploading and checking your file…");

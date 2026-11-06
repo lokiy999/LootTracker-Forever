@@ -34,3 +34,6 @@ has its own projects, and nothing here should be copied back into them or the ot
 - Each folder's README says how that part is built and deployed once it exists.
 - Tests: `python addon/test/harness.py` (needs `lupa`, run on the PC) and `python3 server/test_flow.py` (on the server, uses a throwaway folder and port 8799).
 - Upload service: `server/`, data in `~/forever-data`, port 8767, service `loot-upload-forever`. Site: copy `site/` to `/var/www/forever`.
+
+What the game allows: `docs/FINDINGS.md`. Save format: `docs/FORMAT.md`. Wowhead Looter uploads: `docs/WOWHEAD.md`.
+Tests: `addon/test/harness.py` and `replay.py` (PC, they need lupa); `python3 server/test_flow.py` (server).

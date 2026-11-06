@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WoW Forever Loot</title>
-<meta name="description" content="Drop rates and loot on WoW Forever, recorded by players with the LootTracker Forever addon.">
+<meta name="description" content="Drop rates and loot on WoW Forever, recorded by players with LootTracker Forever and Wowhead Looter.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -59,16 +59,16 @@
   <nav class="tabs" role="tablist" id="tabs"></nav>
   <input id="q" type="search" placeholder="Filter by name or ID" aria-label="Filter">
   <div class="card" id="view"></div>
-  <p class="note">Rates are per corpse looted, from players' uploads. A corpse with nothing on it opens no loot window, so
-    it isn't counted and rates read a little high. Low counts mean little: check the numbers next to each rate.</p>
-  <footer>Item and NPC details from <a href="https://www.wowhead.com">Wowhead</a>.
+  <p class="note">Rates are per kill, from players' uploads. A kill counts when its corpse was looted, or when a player on
+    their own killed a mob of theirs and it left nothing. Kills in a group count once looted, because the rest may have
+    gone to someone else, so rates can read a little high. Low counts mean little: check the numbers next to each rate.</p>
+  <footer>Item and NPC details from <a href="https://www.wowhead.com/forever">Wowhead</a>.
     Not affiliated with Blizzard. <a href="/upload/">Upload your data</a></footer>
 </div>
 <script>const whTooltips = { colorLinks: true, iconizeLinks: true, renameLinks: true };</script>
 <script src="https://wow.zamimg.com/js/tooltips.js"></script>
 <script>
-  // Forever's Wowhead address: TODO 3.5 confirms this (and whether IDs match Classic)
-  const WOWHEAD = "https://www.wowhead.com";
+  const WOWHEAD = "https://www.wowhead.com/forever";
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const gold = (c) => { c = c || 0; const g = Math.floor(c / 10000), s = Math.floor(c / 100) % 100;
     return g ? `${g.toLocaleString()}g ${s}s` : s ? `${s}s ${c % 100}c` : `${c}c`; };
@@ -78,18 +78,18 @@
   let data, tab = "mobs", term = "", open = null;
 
   const TABS = {
-    mobs: { label: "Mobs", key: (m) => `${m.name} ${m.id}`, head: ["Mob", ["Corpses", 1], ["Gold each", 1], ["Items seen", 1]],
-      list: () => data.mobs, id: (m) => m.id, row: (m) => [npc(m), m.corpses, gold(m.copper / m.corpses | 0), m.drops.length],
-      sub: (m) => m.drops.map((d) => [item(d), `${d.times} / ${m.corpses}`, pct(d.times, m.corpses), d.count]) },
+    mobs: { label: "Mobs", key: (m) => `${m.name} ${m.id}`, head: ["Mob", ["Kills", 1], ["Gold each", 1], ["Items seen", 1]],
+      list: () => data.mobs, id: (m) => m.id, row: (m) => [npc(m), m.kills, gold(m.copper / m.kills | 0), m.drops.length],
+      sub: (m) => m.drops.map((d) => [item(d), `${d.times} / ${m.kills}`, pct(d.times, m.kills), d.count]) },
     items: { label: "Items", key: (i) => `${i.id}`, head: ["Item", ["Times dropped", 1], ["Total", 1]],
       list: () => data.items, id: (i) => i.id, row: (i) => [item(i), i.times, i.count],
-      sub: (i) => i.mobs.map((m) => [npc(m), `${m.times} / ${m.corpses}`, pct(m.times, m.corpses)]) },
-    zones: { label: "Zones", key: (z) => z.name, head: ["Zone or instance", ["Corpses", 1], ["Items", 1], ["Gold", 1]],
+      sub: (i) => i.mobs.map((m) => [npc(m), `${m.times} / ${m.kills}`, pct(m.times, m.kills)]) },
+    zones: { label: "Zones", key: (z) => z.name, head: ["Zone or instance", ["Looted", 1], ["Items", 1], ["Gold", 1]],
       list: () => data.zones, row: (z) => [esc(z.name) + (z.instance ? ' <span class="small">instance</span>' : ""), z.corpses, z.items, gold(z.copper)] },
     bosses: { label: "Bosses", key: (b) => `${b.name} ${b.inst}`, head: ["Boss", "Instance", ["Kills", 1], ["Wipes", 1], ["Best", 1]],
       list: () => data.bosses, row: (b) => [esc(b.name || b.encounter), esc(b.inst || "–"), b.kills, b.wipes,
         b.bestSecs ? `${Math.floor(b.bestSecs / 60)}:${String(b.bestSecs % 60).padStart(2, "0")}` : "–"] },
-    players: { label: "My loot", key: (p) => p.name, head: ["Player", ["Corpses", 1], ["Gold", 1], ["Different items", 1]],
+    players: { label: "My loot", key: (p) => p.name, head: ["Player", ["Looted", 1], ["Gold", 1], ["Different items", 1]],
       list: () => data.players, id: (p) => p.name, row: (p) => [esc(p.name), p.corpses, gold(p.copper), p.items.length],
       sub: (p) => p.items.map((i) => [item(i), `×${i.count}`]) },
   };
@@ -127,7 +127,7 @@
   fetch("loot.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
     data = d;
     document.getElementById("updated").textContent = `${d.uploaders} player${d.uploaders === 1 ? "" : "s"}, updated ${new Date(d.updated * 1000).toLocaleString()}`;
-    document.getElementById("big").innerHTML = [[d.totals.corpses.toLocaleString(), "Corpses looted"], [d.totals.items.toLocaleString(), "Items seen"],
+    document.getElementById("big").innerHTML = [[d.totals.kills.toLocaleString(), "Kills"], [d.totals.items.toLocaleString(), "Items seen"],
       [gold(d.totals.copper), "Gold looted"], [d.totals.bossKills, "Boss kills"]].map(([n, l]) => `<div class="bigstat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
     render();
   }).catch(() => { document.getElementById("updated").textContent = "No data yet."; data = { mobs: [], items: [], zones: [], bosses: [], players: [] }; render(); });

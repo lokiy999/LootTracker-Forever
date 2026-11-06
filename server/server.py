@@ -3,7 +3,8 @@
 tools/upload/server.py) with V+'s cache uploads taken out; its own port, data folder and codes.
 
 Only listens on localhost; Caddy forwards to it:
-  POST /upload/api/upload     public. Header X-Upload-Code = the player's code, body = LootTrackerForever.lua.
+  POST /upload/api/upload     public. Header X-Upload-Code = the player's code, body = LootTrackerForever.lua or
+                              +Wowhead_Looter.lua (converted by validate.py; the original stays in wowhead-raw/).
   GET  /admin/api/list                 \
   GET  /admin/api/preview?id=...       |  behind the /admin password (Caddy basic_auth on /admin*)
   POST /admin/api/approve {id}         |
@@ -15,7 +16,7 @@ Only listens on localhost; Caddy forwards to it:
 Safety, as on V+: a code is needed to upload, size cap, rate limits, and every file is checked by validate.py in its
 own process (Lua read as data, never run). No IP addresses are kept. Nothing a player sent is ever deleted.
 
-Data (DATA dir): codes.json, queue/<id>.lua + .json, approved/<player>/<id>.lua.gz + .json,
+Data (DATA dir): codes.json, queue/<id>.lua + .json, wowhead-raw/<player>/<id>.lua.gz, approved/<player>/<id>.lua.gz + .json,
 rejected/<player>/<id>.lua.gz + .json, log.jsonl (every action), rebuild-requested (read by server/cron.sh).
 """
 import gzip
@@ -258,11 +259,12 @@ class Handler(BaseHTTPRequestHandler):
             os.remove(raw)
             return self.send(400, {"error": "The upload was cut off. Try again."})
 
+        converted = raw + ".converted"
         if not checking.acquire(timeout=60):
             os.remove(raw)
             return self.send(503, {"error": "The server is busy checking other files. Try again in a minute."})
         try:
-            p = subprocess.run([sys.executable, "-I", os.path.join(HERE, "validate.py"), raw],
+            p = subprocess.run([sys.executable, "-I", os.path.join(HERE, "validate.py"), raw, converted],
                                capture_output=True, text=True, timeout=VALIDATE_TIMEOUT)
             result = json.loads(p.stdout or "{}") if p.returncode == 0 else {}
         except (subprocess.TimeoutExpired, ValueError):
@@ -273,8 +275,14 @@ class Handler(BaseHTTPRequestHandler):
             os.remove(raw)
             error = result.get("error") or "The file couldn't be checked (too large or not a LootTracker Forever save)."
             log("refused", player=name, size=size, error=error)
+            if os.path.exists(converted):
+                os.remove(converted)
             return self.send(422, {"error": error})
 
+        if result.get("converted"):  # the review and the site use the converted file; what was sent is kept as it came
+            with open(raw, "rb") as src, gzip.open(os.path.join(player_dir("wowhead-raw", name), uid + ".lua.gz"), "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            os.replace(converted, raw)
         os.replace(raw, path("queue", uid + ".lua"))
         entry = {"id": uid, "player": name, "at": int(time.time()), "size": size, **result["summary"]}
         write_json(path("queue", uid + ".json"), entry)

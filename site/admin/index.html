@@ -101,7 +101,7 @@
   function facts(u) {
     const types = Object.entries(u.eventTypes || {}).map(([k, n]) => `${n} ${k}`).join(", ");
     const f = el("div", { className: "facts" });
-    for (const [k, v] of [["Characters", (u.characters || []).join(", ") || "–"], ["Corpses", u.corpses], ["Items", u.items],
+    for (const [k, v] of [["Characters", (u.characters || []).join(", ") || "–"], ["Kills", u.kills], ["Corpses", u.corpses], ["Items", u.items], ["From", u.via || "addon"],
       ["Boss fights", u.bosses], ["Events", u.events + (types ? ` (${types})` : "")], ["Dates", `${day(u.from)} – ${day(u.to)}`],
       ["Size", sizeText(u.size, u.stored)], ["Addon", (u.addons && u.addons.length ? u.addons.join(", ") : "–") + ` (format ${u.format})`]])
       f.append(el("span", {}, `${k} `, el("b", { textContent: String(v) })));

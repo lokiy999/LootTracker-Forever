@@ -1,17 +1,27 @@
--- LootTracker Forever: records loot for forever.lokiy.dev. Not the V+ addon: WoW Forever has the modern API and no
--- combat log for addons, so everything here starts from the loot window, the loot chat lines and ENCOUNTER_END.
--- The save file is documented in docs/FORMAT.md. DRAFT: not yet run in game (TODO 3.2 / 4.7).
+-- LootTracker Forever: records kills and loot for forever.lokiy.dev. Not the V+ addon: WoW Forever has the modern API
+-- and no combat log for addons. Kills come from PARTY_KILL (you and your party only), loot from the loot window.
+-- Why it works this way: docs/FINDINGS.md. The save file: docs/FORMAT.md.
+-- DRAFT: replayed against real LootProbe data, but this addon itself hasn't run in game yet (TODO 4.7).
 
 local ADDON = "LootTrackerForever"
-local VERSION = "0.1.0"
+local VERSION = "0.2.0"
 
 local issecret = issecretvalue or function() return false end
 
+local LOOT_SLOT_MONEY = 2
+local GATHER_SPELLS = { 8613, 2575, 2366, 921, 7620, 13262 } -- skinning, mining, herbs, pick pocket, fishing, disenchant
+local KILL_XP_WINDOW = 2   -- seconds between a kill and its XP line, either way round
+local LOOT_CHECK_DELAY = 1.5
+local GATHER_WINDOW = 2
+local MAX_TAPS = 3000
+
 local db
-local me, realm
+local me, realm, myGuid
 local seen = {}          -- corpse / object GUIDs already counted this session
-local current            -- the loot event of the open loot window
-local moneyBefore
+local taps, tapCount = {}, 0  -- mob GUID -> last state seen while it was alive
+local gatherNames = {}
+local lastGather, lastXp = -100, -100
+local lastKill, lastKillTime
 local window, line1, line2
 
 -- A secret value can't be stored or tested: nil means "couldn't read it"
@@ -31,55 +41,81 @@ end
 
 local function add(ev)
 	db.seq = db.seq + 1
-	ev.id = me .. "-" .. realm .. ":" .. db.seq
+	ev.id = myGuid .. ":" .. db.seq
 	ev.t = GetServerTime()
 	place(ev)
 	db.events[#db.events + 1] = ev
 	return ev
 end
 
--- "Creature-0-1-2-3-448-000ABC" -> "Creature", 448
+-- "Creature-0-7085-0-2-1501-18FB74DBB6" -> "Creature", 1501, the whole GUID, "18FB74DBB6" (unique to that mob)
 local function parseGuid(guid)
 	guid = plain(guid)
 	if type(guid) ~= "string" then return end
-	local kind, id = guid:match("^(%a+)%-%d+%-[^-]*%-[^-]*%-[^-]*%-(%d+)%-")
-	return kind, tonumber(id), guid
+	-- Players are shorter ("Player-6949-00A39D60") and only give the kind
+	local id, tail = guid:match("^%a+%-%d+%-[^-]*%-[^-]*%-[^-]*%-(%d+)%-(%w+)$")
+	return guid:match("^%a+"), tonumber(id), guid, tail
+end
+
+-- A mob's tag only shows while it's alive: UnitIsTapDenied = someone outside the group got it first
+local function noteUnit(unit)
+	unit = plain(unit)
+	if type(unit) ~= "string" then return end
+	if unit ~= "target" and not unit:find("^nameplate") then return end
+	local guid = plain(UnitGUID(unit))
+	if type(guid) ~= "string" or plain(UnitIsDead(unit)) ~= false then return end
+	local denied = plain(UnitIsTapDenied(unit))
+	if denied == nil then return end
+	if tapCount >= MAX_TAPS then taps, tapCount = {}, 0 end
+	local t = taps[guid]
+	if not t then
+		t = {}
+		taps[guid] = t
+		tapCount = tapCount + 1
+	end
+	t.denied, t.name = denied, plain(UnitName(unit)) or t.name
 end
 
 local function refresh()
 	if not window then return end
 	local s = db.stats
-	line1:SetText(("Corpses %d   Items %d   %s"):format(s.corpses, s.items, GetCoinTextureString and
+	line1:SetText(("Kills %d   Items %d   %s"):format(s.kills or 0, s.items, GetCoinTextureString and
 		GetCoinTextureString(s.copper) or (s.copper .. "c")))
 	line2:SetText(#db.events > 0 and ("%d events ready to upload"):format(#db.events) or "Nothing to upload yet")
 end
 
--- One corpse / object per loot window. Several sources in a window (area loot) become one event each.
-local function readWindow()
+-- One event per corpse / object. A window can hold several sources (area loot): each gets its own event.
+local function readWindow(gathering)
 	local bySource, order = {}, {}
 	for slot = 1, GetNumLootItems() do
 		local link = plain(GetLootSlotLink(slot))
-		local _, name, count, _, quality = GetLootSlotInfo(slot)
+		local _, _, count, _, quality = GetLootSlotInfo(slot)
+		local money = plain(GetLootSlotType(slot)) == LOOT_SLOT_MONEY
 		local source = { GetLootSourceInfo(slot) }
 		local itemId = type(link) == "string" and tonumber(link:match("|Hitem:(%d+)"))
-		-- GetLootSourceInfo returns guid, quantity, guid, quantity, ... : each source's share of the slot
+		-- GetLootSourceInfo returns guid, quantity, guid, quantity, ...: each source's share of the slot.
+		-- On a money slot the quantity is that source's copper, before any group split.
 		for i = 1, #source, 2 do
-			local kind, id, guid = parseGuid(source[i])
+			local kind, id, guid, tail = parseGuid(source[i])
 			if guid and not seen[guid] then
 				local e = bySource[guid]
 				if not e then
-					e = { type = "loot", items = {} }
-					-- The loot window doesn't name its source; the target usually is the corpse
+					e = { type = "loot", items = {}, g = tail }
+					-- The loot window doesn't name its source; the target or an earlier look at it usually does
 					if plain(UnitGUID("target")) == guid then e.name = plain(UnitName("target")) end
+					e.name = e.name or (taps[guid] and taps[guid].name)
 					if kind == "Creature" or kind == "Vehicle" then e.src, e.npc = "mob", id
 					elseif kind == "GameObject" then e.src, e.obj = "object", id
 					else e.src = "other" end
+					if gathering then e.how = "gather" end
 					bySource[guid] = e
 					order[#order + 1] = guid
 				end
-				if itemId then
-					e.items[#e.items + 1] = { id = itemId, count = plain(source[i + 1]) or plain(count) or 1,
-						q = plain(quality) }
+				local share = plain(source[i + 1])
+				if money then
+					e.copper = (e.copper or 0) + (share or 0)
+				elseif itemId then
+					e.items[#e.items + 1] = { id = itemId, count = share or plain(count) or 1, q = plain(quality) }
 				end
 			end
 		end
@@ -88,38 +124,67 @@ local function readWindow()
 end
 
 local function onLootReady()
-	if current then return end
-	local bySource, order = readWindow()
-	local first
+	local gathering = GetTime() - lastGather < GATHER_WINDOW or (IsFishingLoot and plain(IsFishingLoot()) == true)
+	local bySource, order = readWindow(gathering)
 	for _, guid in ipairs(order) do
-		seen[guid] = true
-		local ev = add(bySource[guid])
-		first = first or ev
-		if ev.src == "mob" then db.stats.corpses = db.stats.corpses + 1 end
+		local ev = bySource[guid]
+		-- Pick pocketing leaves the mob alive, so its real corpse must still count later
+		if not (gathering and ev.src == "mob") then seen[guid] = true end
+		add(ev)
+		if ev.src == "mob" and not gathering then db.stats.corpses = db.stats.corpses + 1 end
 		db.stats.items = db.stats.items + #ev.items
+		db.stats.copper = db.stats.copper + (ev.copper or 0)
 	end
-	current, moneyBefore = first, GetMoney()
 	refresh()
 end
 
--- Money is read from the purse, so the addon doesn't parse localized coin text: what the window paid goes on its first
--- corpse (with area loot that's the whole window's money).
-local function onLootClosed()
-	if current then
-		local gained = GetMoney() - (moneyBefore or 0)
-		if gained > 0 then
-			current.copper = gained
-			db.stats.copper = db.stats.copper + gained
-		end
-	end
-	current, moneyBefore = nil, nil
+-- PARTY_KILL fires for you and your party, never strangers. Three things decide later if an unlooted kill was empty:
+-- tap (was the mob ours), xp (did it pay XP) and left (a corpse with loot nobody took says nothing about drops).
+local function onPartyKill(killer, victim)
+	local killerKind, _, killerGuid = parseGuid(killer)
+	local kind, id, guid, tail = parseGuid(victim)
+	if not guid or (kind ~= "Creature" and kind ~= "Vehicle") then return end
+	local t = taps[guid]
+	local ev = { type = "kill", npc = id, g = tail, name = t and t.name }
+	ev.by = killerGuid == myGuid and "me" or (killerKind == "Player" and "party" or "pet")
+	if t then ev.tap = t.denied and 0 or 1 end
+	local size = plain(GetNumGroupMembers())
+	if size and size > 1 then ev.grp = size end
+	if GetTime() - lastXp < KILL_XP_WINDOW then ev.xp = 1 end
+	add(ev)
+	lastKill, lastKillTime = ev, GetTime()
+	db.stats.kills = (db.stats.kills or 0) + 1
 	refresh()
+	if C_Timer and CanLootUnit then
+		C_Timer.After(LOOT_CHECK_DELAY, function()
+			local ok, hasLoot = pcall(CanLootUnit, guid)
+			if ok and plain(hasLoot) == true then ev.left = 1 end
+		end)
+	end
 end
 
--- Global strings like "%s receives loot: %s." -> a pattern with two captures
+-- "You gain 40 experience." is a quest or discovery; only lines naming a mob belong to a kill
+local UNNAMED_XP
+
+local function onXp(msg)
+	if issecret(msg) or (UNNAMED_XP and msg:find(UNNAMED_XP)) then return end
+	lastXp = GetTime()
+	if lastKill and GetTime() - lastKillTime < KILL_XP_WINDOW then lastKill.xp = 1 end
+end
+
+local function onSpell(unit, _, spellId)
+	if plain(unit) ~= "player" then return end
+	spellId = plain(spellId)
+	if spellId and gatherNames[C_Spell.GetSpellName(spellId) or ""] then lastGather = GetTime() end
+end
+
+-- Global strings like "%s receives loot: %s." -> a pattern with two captures. The final full stop is optional:
+-- Forever's own lines drop it ("You receive loot: [Linen Cloth]") while other players' lines keep it.
 local function pattern(s)
+	s = s:gsub("%%%d%$", "%%"):gsub("%.$", "")
 	s = s:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1")
-	return "^" .. s:gsub("%%%%?s", "(.+)"):gsub("%%%%?d", "(%%d+)") .. "$"
+	s = s:gsub("%%s", "(.+)"):gsub("%%d", "(%%d+)")
+	return "^" .. s .. "%.?$"
 end
 
 local SELF, OTHER, SELF_N, OTHER_N, WON, YOU_WON
@@ -131,6 +196,7 @@ local function setupPatterns()
 	OTHER_N = LOOT_ITEM_MULTIPLE and pattern(LOOT_ITEM_MULTIPLE)
 	WON = LOOT_ROLL_WON and pattern(LOOT_ROLL_WON)
 	YOU_WON = LOOT_ROLL_YOU_WON and pattern(LOOT_ROLL_YOU_WON)
+	UNNAMED_XP = COMBATLOG_XPGAIN_FIRSTPERSON_UNNAMED and pattern(COMBATLOG_XPGAIN_FIRSTPERSON_UNNAMED)
 end
 
 local function itemOf(link)
@@ -213,8 +279,13 @@ local function start()
 	db.format, db.game = 1, "forever"
 	db.seq, db.session = db.seq or 0, (db.session or 0) + 1
 	db.events, db.settings = db.events or {}, db.settings or {}
-	db.stats = db.stats or { corpses = 0, items = 0, copper = 0 }
-	me, realm = UnitName("player"), GetRealmName()
+	db.stats = db.stats or { kills = 0, corpses = 0, items = 0, copper = 0 }
+	me, realm, myGuid = UnitName("player"), GetRealmName(), UnitGUID("player")
+	db.guid = myGuid
+	for _, spell in ipairs(GATHER_SPELLS) do
+		local name = C_Spell and C_Spell.GetSpellName(spell)
+		if name then gatherNames[name] = true end
+	end
 	local _, class = UnitClass("player")
 	local _, _, _, interface = GetBuildInfo()
 	db.realm, db.player, db.faction, db.class = realm, me, UnitFactionGroup("player"), class
@@ -227,8 +298,13 @@ end
 local frame = CreateFrame("Frame")
 local HANDLERS = {
 	LOOT_READY = onLootReady,
-	LOOT_CLOSED = onLootClosed,
 	CHAT_MSG_LOOT = onLootChat,
+	CHAT_MSG_COMBAT_XP_GAIN = onXp,
+	PARTY_KILL = onPartyKill,
+	UNIT_SPELLCAST_SUCCEEDED = onSpell,
+	UNIT_HEALTH = noteUnit,
+	NAME_PLATE_UNIT_ADDED = noteUnit,
+	PLAYER_TARGET_CHANGED = function() noteUnit("target") end,
 	ENCOUNTER_START = function() encounterStart = GetServerTime() end,
 	ENCOUNTER_END = onEncounterEnd,
 }
@@ -250,7 +326,7 @@ SLASH_LOOTTRACKERFOREVER1 = "/ltf"
 SlashCmdList.LOOTTRACKERFOREVER = function(msg)
 	msg = (msg or ""):lower()
 	if msg == "reset confirm" then
-		db.events, db.stats = {}, { corpses = 0, items = 0, copper = 0 }
+		db.events, db.stats = {}, { kills = 0, corpses = 0, items = 0, copper = 0 }
 		refresh()
 		print("LootTracker Forever: data cleared. Only do this after your upload is safe.")
 	elseif msg == "reset" then

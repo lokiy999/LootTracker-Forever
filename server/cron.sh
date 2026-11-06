@@ -1,6 +1,6 @@
 #!/bin/bash
 # Rebuilds forever.lokiy.dev after an approval (TODO 5.7) and keeps a daily backup of the uploads (5.8). Separate from
-# V+'s sync_db.sh. NOT installed yet. To install, add to the lokiy user's crontab:
+# V+'s sync_db.sh. Runs from the lokiy user's crontab:
 #   */5 * * * * /home/lokiy/forever/server/cron.sh
 DATA=/home/lokiy/forever-data
 BACKUPS=/home/lokiy/forever-backups
@@ -18,6 +18,8 @@ fi
 TODAY=$BACKUPS/forever-$(date -u +%F).tar.gz
 if [ ! -e "$TODAY" ]; then
 	mkdir -p "$BACKUPS"
-	tar -czf "$TODAY.part" -C "$DATA" approved rejected codes.json log.jsonl 2>/dev/null && mv "$TODAY.part" "$TODAY"
+	# Only what exists yet: tar fails on a missing folder, which would skip the backup until every one of these exists
+	PARTS=$(cd "$DATA" 2>/dev/null && ls -d approved rejected wowhead-raw codes.json log.jsonl 2>/dev/null)
+	[ -n "$PARTS" ] && tar -czf "$TODAY.part" -C "$DATA" $PARTS 2>/dev/null && mv "$TODAY.part" "$TODAY"
 	ls -1t "$BACKUPS"/forever-*.tar.gz | tail -n +15 | xargs -r rm -f
 fi

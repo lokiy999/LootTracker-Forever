@@ -5,6 +5,7 @@
 --   /lootprobe reset    clears the log
 
 local MAX_LOG = 20000
+local PROBE_VERSION = 2    -- a new version starts a new log: version 1 filled up on the first session
 local PREFIX = "LootProbe"
 
 local EVENTS = {
@@ -12,14 +13,14 @@ local EVENTS = {
 	"LOOT_READY", "LOOT_OPENED", "LOOT_CLOSED", "LOOT_SLOT_CLEARED",
 	"CHAT_MSG_LOOT", "CHAT_MSG_MONEY", "START_LOOT_ROLL", "LOOT_ROLLS_COMPLETE", "OPEN_MASTER_LOOT_LIST",
 	"ENCOUNTER_START", "ENCOUNTER_END", "BOSS_KILL",
-	"PLAYER_TARGET_CHANGED", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
+	"PLAYER_TARGET_CHANGED", "PARTY_KILL", "GROUP_ROSTER_UPDATE",
 	"CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_XP_GAIN", "CHAT_MSG_COMBAT_HONOR_GAIN", "QUEST_TURNED_IN",
 }
--- Named by the research as blocked: tried on purpose, the result is the answer
-local MAYBE_BLOCKED = { "COMBAT_LOG_EVENT_UNFILTERED", "UNIT_DIED", "PARTY_KILL", "UNIT_HEALTH" }
+-- Version 1 found COMBAT_LOG_EVENT_UNFILTERED accepted but it never delivered anything and probably caused the "blocked"
+-- popup, so it's gone. UNIT_DIED, UNIT_HEALTH and nameplates filled the log and have answered their question.
 local API_CHECK = {
 	"GetLootSourceInfo", "GetLootSlotInfo", "GetLootSlotLink", "GetLootSlotType", "GetNumLootItems", "GetMoney",
-	"GetServerTime", "GetInstanceInfo", "GetRealZoneText", "UnitGUID", "UnitIsDead", "UnitName", "GetLootRollItemLink",
+	"GetServerTime", "GetInstanceInfo", "GetRealZoneText", "UnitGUID", "UnitIsDead", "UnitName", "GetLootRollItemLink", "UnitIsTapDenied",
 	"CombatLogGetCurrentEventInfo", "issecretvalue", "canaccessvalue", "CanLootUnit",
 }
 
@@ -57,7 +58,7 @@ end
 
 local function unitInfo(unit)
 	return { guid = try(UnitGUID, unit), name = try(UnitName, unit), dead = try(UnitIsDead, unit),
-		canLoot = try(CanLootUnit, plain(UnitGUID(unit))) }
+		tapDenied = try(UnitIsTapDenied, unit), canLoot = try(CanLootUnit, plain(UnitGUID(unit))) }
 end
 
 local function lootWindow()
@@ -75,13 +76,15 @@ local frame = CreateFrame("Frame")
 local function start()
 	LootProbeDB = LootProbeDB or { log = {} }
 	local db = LootProbeDB
+	if db.probe ~= PROBE_VERSION then
+		db.log, db.dropped, db.probe = {}, nil, PROBE_VERSION
+	end
 	local version, build, date, interface = GetBuildInfo()
 	db.client = { version = plain(version), build = plain(build), date = plain(date), interface = plain(interface) }
 	db.apis = {}
 	for _, name in ipairs(API_CHECK) do db.apis[name] = _G[name] ~= nil end
 	db.events = {}
 	for _, e in ipairs(EVENTS) do db.events[e] = (pcall(frame.RegisterEvent, frame, e)) end
-	for _, e in ipairs(MAYBE_BLOCKED) do db.events[e] = (pcall(frame.RegisterEvent, frame, e)) end
 	if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
 		db.events.addonPrefix = (pcall(C_ChatInfo.RegisterAddonMessagePrefix, PREFIX))
 	end
@@ -103,16 +106,14 @@ frame:SetScript("OnEvent", function(_, event, ...)
 		data.slots = lootWindow()
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		data.target = unitInfo("target")
-	elseif event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
-		local unit = ...
-		data.unit = unitInfo(plain(unit))
+	elseif event == "PARTY_KILL" then
+		data.group = try(GetNumGroupMembers)
+		data.canLoot = try(CanLootUnit, plain((select(2, ...))))
 	elseif event == "ENCOUNTER_START" or event == "ENCOUNTER_END" or event == "PLAYER_ENTERING_WORLD" then
 		data.instance = try(GetInstanceInfo)
 		data.zone = try(GetRealZoneText)
 	elseif event == "START_LOOT_ROLL" then
 		data.link = try(GetLootRollItemLink, plain((...)))
-	elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-		data.info = try(CombatLogGetCurrentEventInfo)
 	end
 	add(event, data)
 end)
@@ -131,6 +132,5 @@ SlashCmdList.LOOTPROBE = function(msg)
 		print("LootProbe: test message sent to " .. channel .. ".")
 	else
 		print(("LootProbe: %d events logged. Interface number: %s."):format(#db.log, tostring(db.client.interface)))
-		for _, e in ipairs(MAYBE_BLOCKED) do print("  " .. e .. ": " .. (db.events[e] and "allowed" or "blocked")) end
 	end
 end
