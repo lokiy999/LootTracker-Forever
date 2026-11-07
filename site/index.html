@@ -61,7 +61,8 @@
   <div class="card" id="view"></div>
   <p class="note">Rates are per kill, from players' uploads. A kill counts when its corpse was looted, or when a player on
     their own killed a mob of theirs and it left nothing. Kills in a group count once looted, because the rest may have
-    gone to someone else, so rates can read a little high. Low counts mean little: check the numbers next to each rate.</p>
+    gone to someone else, so rates can read a little high. In dungeons the game hides which mob died, so there rates are per
+    looted corpse. Low counts mean little: check the numbers next to each rate.</p>
   <footer>Item and NPC details from <a href="https://www.wowhead.com/forever">Wowhead</a>.
     Not affiliated with Blizzard. <a href="/upload/">Upload your data</a></footer>
 </div>
@@ -89,8 +90,8 @@
     bosses: { label: "Bosses", key: (b) => `${b.name} ${b.inst}`, head: ["Boss", "Instance", ["Kills", 1], ["Wipes", 1], ["Best", 1]],
       list: () => data.bosses, row: (b) => [esc(b.name || b.encounter), esc(b.inst || "–"), b.kills, b.wipes,
         b.bestSecs ? `${Math.floor(b.bestSecs / 60)}:${String(b.bestSecs % 60).padStart(2, "0")}` : "–"] },
-    players: { label: "My loot", key: (p) => p.name, head: ["Player", ["Looted", 1], ["Gold", 1], ["Different items", 1]],
-      list: () => data.players, id: (p) => p.name, row: (p) => [esc(p.name), p.corpses, gold(p.copper), p.items.length],
+    players: { label: "My loot", key: (p) => p.name, head: ["Player", ["Kills", 1], ["Looted", 1], ["Gold", 1], ["Different items", 1]],
+      list: () => data.players, id: (p) => p.name, row: (p) => [esc(p.name), p.kills, p.corpses, gold(p.copper), p.items.length],
       sub: (p) => p.items.map((i) => [item(i), `×${i.count}`]) },
   };
 

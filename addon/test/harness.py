@@ -100,6 +100,7 @@ def load(lua, path):
 
 def tracker():
     lua = runtime()
+    lua.execute('issecretvalue = function(v) return v == "SECRET" end')  # the game has it before any addon loads
     load(lua, "../LootTrackerForever/LootTrackerForever.lua")
     run = lua.execute
     run('fire("ADDON_LOADED", "LootTrackerForever"); fire("PLAYER_LOGIN")')
@@ -145,12 +146,13 @@ def tracker():
            fire("CHAT_MSG_LOOT", "You receive loot: |cff|Hitem:7074:::|h[Claw]|h|rx2")
            fire("CHAT_MSG_LOOT", "Steve Hyde receives loot: |cff|Hitem:1234:::|h[Sword]|h|r.")
            fire("CHAT_MSG_LOOT", "Bob receives loot: |cff|Hitem:2589:::|h[Linen]|h|rx3.")
-           fire("CHAT_MSG_LOOT", "Ann won: |cff|Hitem:1234:::|h[Sword]|h|r")
-           fire("CHAT_MSG_LOOT", "You won: |cff|Hitem:777:::|h[Ring]|h|r")
-           fire("CHAT_MSG_LOOT", "You receive item: |cff|Hitem:159:::|h[Water]|h|rx5")
+           fire("CHAT_MSG_LOOT", "|HlootHistory:12|h[Loot]|h: Ann won: |cff|Hitem:1234:::|h[Sword]|h|r")
+           fire("CHAT_MSG_LOOT", "|HlootHistory:-3|h[Loot]|h: You won: |cff|Hitem:777:::|h[Ring]|h|r")
+           fire("CHAT_MSG_LOOT", "|HlootHistory:12|h[Loot]|h: You have selected Greed for: |cff|Hitem:1234:::|h[Sword]|h|r")           fire("CHAT_MSG_LOOT", "You receive item: |cff|Hitem:159:::|h[Water]|h|rx5")
            fire("CHAT_MSG_LOOT", "You create: |cff|Hitem:6218:::|h[Rod]|h|r.")''')
-    # a boss
+    # a boss, after a dungeon kill the game hides
     run('''GetInstanceInfo = function() return "Deadmines", "party", 1, "Normal", 5, 0, false, 36 end
+           group_size = 5; fire("PARTY_KILL", "SECRET", "SECRET"); group_size = 0
            fire("ENCOUNTER_START", 1, "VanCleef", 1, 5); time_now = time_now + 90
            fire("ENCOUNTER_END", 1, "VanCleef", 1, 5, 1)''')
     db = lua.eval("LootTrackerForeverDB")
@@ -158,7 +160,7 @@ def tracker():
     evs = [db.events[i] for i in range(1, len(db.events) + 1)]
     kinds = [e.type for e in evs]
     want = ["login", "kill", "loot", "kill", "kill", "kill", "kill", "loot", "loot", "loot",
-            "got", "got", "got", "got", "won", "won", "boss"]
+            "got", "got", "got", "got", "won", "won", "kill", "boss"]
     assert kinds == want, kinds
     k, mob = evs[1], evs[2]
     assert (k.npc, k.g, k.by, k.tap, k.name) == (448, "0001", "me", 1, "Hogger"), dict(k)
@@ -176,10 +178,12 @@ def tracker():
     assert got == [(2589, 1, "Tester"), (7074, 2, "Tester"), (1234, 1, "Steve Hyde"), (2589, 3, "Bob")], got
     assert (evs[14].item, evs[14].who) == (1234, "Ann")
     assert (evs[15].item, evs[15].who) == (777, "Tester")
-    boss = evs[16]
+    hidden = evs[16]
+    assert (hidden.hidden, hidden.grp, hidden.npc, hidden.inst) == (1, 5, None, "Deadmines"), dict(hidden)
+    boss = evs[17]
     assert (boss.name, boss.ok, boss.secs, boss.inst, boss.instId) == ("VanCleef", 1, 90, "Deadmines", 36), dict(boss)
     assert db.guid == "Player-1-ABC" and evs[1].id == "Player-1-ABC:2", evs[1].id
-    assert (db.stats.kills, db.stats.corpses, db.stats.copper) == (5, 2, 62), dict(db.stats)
+    assert (db.stats.kills, db.stats.corpses, db.stats.copper) == (6, 2, 62), dict(db.stats)
     return lua
 
 

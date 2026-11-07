@@ -152,6 +152,9 @@ def summarize(text, converted_out=None):
                 need(is_int(it.get("count", 1)) and 0 < it.get("count", 1) < 10000, "A looted item has an invalid stack size.")
                 need(it.get("q") is None or (is_int(it["q"]) and 0 <= it["q"] <= 8), "A looted item has an invalid quality.")
                 items += 1
+        elif kind == "kill" and e.get("hidden") is not None:  # a dungeon kill: the game hides what died
+            need(e["hidden"] == 1 and e.get("npc") is None, "A kill has an invalid hidden mark.")
+            kills += 1
         elif kind == "kill":
             need(is_int(e.get("npc")) and e["npc"] > 0, "A kill has an invalid NPC ID.")
             need(e.get("by") in KILLERS, "A kill has an unknown killer.")

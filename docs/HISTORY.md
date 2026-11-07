@@ -48,3 +48,13 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
   character's, worked out from its events at login. `/ltf reset confirm` says it clears every character.
 - `server/validate.py`, `build_site.py`: each event is credited to the character in its id. Events from before 0.3.0 keep
   the character's ID until that character logs in once.
+
+## 2026-11-07: Dungeon run; roll lines, hidden kills, LootProbe retired
+- Read Lokiy's Ragefire Chasm run (`docs/FINDINGS.md`): bosses, loot windows and loot chat all work; kills arrive with
+  secret GUIDs, and roll lines carry a loot history link in front.
+- `addon/LootTrackerForever/` 0.4.0: roll lines are read (none were before: the link broke the pattern); a kill with
+  secret GUIDs is saved as `kill` with `hidden = 1`.
+- `server/validate.py`, `build_site.py`, `site/`: hidden kills count only in the uploader's own total (new Kills column
+  on the player tab); dungeon rates are per looted corpse, and the page says so.
+- LootProbe retired: removed from Lokiy's AddOns folder and from forever.lokiy.dev/admin/. Its last data is on the PC in
+  `logs\forever-2026-11-07\`.

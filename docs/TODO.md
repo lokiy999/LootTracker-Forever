@@ -46,8 +46,8 @@ Background (research 2026-11-04):
   - [x] NPC ID readable from a mob GUID.
   - [x] Ways to count kills without the combat log: nameplates, target death, looted corpses.
   - [x] Addon messages between players (only needed for in-game sharing, not for the site).
-- [ ] 3.2 **(Lokiy)** Play with it: a dungeon, and a raid boss fight (are loot messages secret during encounters?).
-      Open world and groups done 2026-11-05. No need to send anything: Claude reads the file on the PC.
+- [x] 3.2 **(Lokiy)** Play with it: open world and groups (2026-11-05), Ragefire Chasm (2026-11-07). A raid is still
+      worth a look (step 4.7). LootProbe is retired.
 - [x] 3.3 Read the results and write them down in `docs/` (what works, what is blocked): `docs/FINDINGS.md`.
 - [x] 3.4 Decide the drop-rate basis: per kill (a looted corpse, or a solo kill of ours that left nothing), see FORMAT.md.
 - [x] 3.5 Check item and NPC IDs against Wowhead (Forever): samples match. Links use `wowhead.com/forever`.

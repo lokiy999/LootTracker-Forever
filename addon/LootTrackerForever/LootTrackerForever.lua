@@ -4,7 +4,7 @@
 -- DRAFT: replayed against real LootProbe data, but this addon itself hasn't run in game yet (TODO 4.7).
 
 local ADDON = "LootTrackerForever"
-local VERSION = "0.3.0"
+local VERSION = "0.4.0"
 
 local issecret = issecretvalue or function() return false end
 
@@ -141,6 +141,14 @@ end
 -- PARTY_KILL fires for you and your party, never strangers. Three things decide later if an unlooted kill was empty:
 -- tap (was the mob ours), xp (did it pay XP) and left (a corpse with loot nobody took says nothing about drops).
 local function onPartyKill(killer, victim)
+	-- In dungeons the game hides who died (and who killed it): only the count is left
+	if issecret(victim) then
+		local size = plain(GetNumGroupMembers())
+		add({ type = "kill", hidden = 1, grp = size and size > 1 and size or nil })
+		db.stats.kills = (db.stats.kills or 0) + 1
+		refresh()
+		return
+	end
 	local killerKind, _, killerGuid = parseGuid(killer)
 	local kind, id, guid, tail = parseGuid(victim)
 	if not guid or (kind ~= "Creature" and kind ~= "Vehicle") then return end
@@ -203,11 +211,17 @@ local function itemOf(link)
 	return tonumber(link:match("|Hitem:(%d+)"))
 end
 
+-- Forever starts roll lines with a link to its loot history: "|HlootHistory:12|h[Loot]|h: You won: [Malachite]"
+local function withoutHistoryLink(msg)
+	return (msg:gsub("^|HlootHistory:[^|]*|h%[[^%]]*%]|h: ", ""))
+end
+
 local function onLootChat(msg)
 	if issecret(msg) then
 		db.skipped = (db.skipped or 0) + 1
 		return
 	end
+	msg = withoutHistoryLink(msg)
 	local a, b, c
 	if YOU_WON then
 		a = msg:match(YOU_WON)

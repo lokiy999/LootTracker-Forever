@@ -7,7 +7,9 @@ Reads approved/<player>/*.lua.gz. Events are unique by id, so an event in two up
 here: the page gets them from Wowhead by ID.
 
 The drop rate basis is per kill (docs/FINDINGS.md): a kill is a looted corpse, or a kill that left nothing. Group kills
-only count once looted: the rest may have gone to someone else, so "empty" can only be known playing alone.
+only count once looted: the rest may have gone to someone else, so "empty" can only be known playing alone. In dungeons
+the game hides what died, so there it's per looted corpse; those hidden kills only add to each player's own count (five
+players in one group would otherwise count each kill five times).
 """
 import glob
 import gzip
@@ -59,7 +61,11 @@ def build(evs):
     looted = {(e["npc"], e["g"]) for e in evs if e["type"] == "loot" and e.get("npc") and e.get("g") and not e.get("how")}
     counted = set()
     for e in evs:
-        p = players.setdefault(e["uploader"], {"name": e["uploader"], "corpses": 0, "copper": 0, "items": {}})
+        p = players.setdefault(e["uploader"], {"name": e["uploader"], "kills": 0, "corpses": 0, "copper": 0, "items": {}})
+        if e["type"] == "kill":
+            p["kills"] += 1
+            if e.get("hidden"):
+                continue
         if e["type"] == "boss":
             b = bosses.setdefault(e.get("encounter"), {"encounter": e.get("encounter"), "name": e.get("name"),
                                                        "inst": e.get("inst"), "kills": 0, "wipes": 0, "bestSecs": None})
