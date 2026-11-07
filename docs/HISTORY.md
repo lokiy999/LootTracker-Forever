@@ -58,3 +58,9 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
   on the player tab); dungeon rates are per looted corpse, and the page says so.
 - LootProbe retired: removed from Lokiy's AddOns folder and from forever.lokiy.dev/admin/. Its last data is on the PC in
   `logs\forever-2026-11-07\`.
+
+## 2026-11-07: forever.lokiy.dev is live
+- Lokiy's yes: `site/index.html`, `site/upload/` and `site/admin/` copied to `/var/www/forever` (the "coming soon"
+  page kept as `index.html.bak-2026-11-07`), and an empty `loot.json` built. No Caddy change was needed.
+- Lokiy's upload code made (not auto-approved, as decided in 2.3); it's on the admin page.
+- Deploying the pages again after a change: copy them from `site/` to `/var/www/forever` (same paths).

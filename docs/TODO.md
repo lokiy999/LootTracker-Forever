@@ -76,7 +76,7 @@ Background (research 2026-11-04):
 - [x] 5.8 Backups of the Forever upload data: a daily archive in `~/forever-backups`, last 14 kept.
 
 ## 6. Website
-- [ ] 6.1 Copy the loot page into `site/` and serve it at the address from 2.2. **Written fresh in `site/`, not deployed yet.**
+- [x] 6.1 Copy the loot page into `site/` and serve it at the address from 2.2: live 2026-11-07, with /upload/ and /admin/.
 - [x] 6.2 Replace db.lokiy.dev with Wowhead (Forever): icons, tooltips (Wowhead tooltip script), item and mob links,
       names of items the addon didn't record (~37 db.lokiy.dev references in the V+ loot scripts and page). 
 - [x] 6.3 Texts: "WoW Forever" instead of Vanilla+, plus an upload guide.
