@@ -64,3 +64,15 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
   page kept as `index.html.bak-2026-11-07`), and an empty `loot.json` built. No Caddy change was needed.
 - Lokiy's upload code made (not auto-approved, as decided in 2.3); it's on the admin page.
 - Deploying the pages again after a change: copy them from `site/` to `/var/www/forever` (same paths).
+
+## 2026-11-07: Instances, gathering, crafting and characters on the site; addon 0.5.0
+- `site/index.html`, `server/build_site.py`: new tabs Instances (runs, boss kills, looted corpses, gold; opening one
+  shows its bosses, green-and-better drops and mobs), Gathering (per skill and source: node, skinned mob, the water
+  fished, the item disenchanted, with rates per gather) and Crafting. "My loot" is now Characters: name in class colour,
+  class, faction, and loot / gathered / crafted listed apart. Bosses moved into Instances; Zones are the open world.
+  A run ends after an hour away from the instance; group members' overlapping runs are one run.
+- `addon/LootTrackerForever/` 0.5.0: a gather says which skill (`skill`), a disenchant which item (`from`, from the bag
+  item clicked before the cast: post-hooks only), and "You create:" lines are saved as `made` with the recipe.
+- `server/validate.py` accepts those; `convert_wowhead.py` gives Wowhead's mining, herb and fishing loot their skill.
+  Uploads from before 0.5.0 have no skill: the site guesses it from the source ("Herbalism or Mining").
+- Tests: `addon/test/harness.py` (new gathering test), `server/test_flow.py` (instances, gathering, crafting, class).

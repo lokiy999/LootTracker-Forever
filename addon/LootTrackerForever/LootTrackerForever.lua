@@ -4,23 +4,30 @@
 -- DRAFT: replayed against real LootProbe data, but this addon itself hasn't run in game yet (TODO 4.7).
 
 local ADDON = "LootTrackerForever"
-local VERSION = "0.4.0"
+local VERSION = "0.5.0"
 
 local issecret = issecretvalue or function() return false end
 
 local LOOT_SLOT_MONEY = 2
 local GATHER_SPELLS = { 8613, 2575, 2366, 921, 7620, 13262 } -- skinning, mining, herbs, pick pocket, fishing, disenchant
+local FISHING, DISENCHANT = 7620, 13262
 local KILL_XP_WINDOW = 2   -- seconds between a kill and its XP line, either way round
 local LOOT_CHECK_DELAY = 1.5
 local GATHER_WINDOW = 2
+local TOUCH_WINDOW = 8     -- seconds between clicking a bag item and the disenchant cast finishing
+local CRAFT_WINDOW = 3     -- seconds between a cast and its "You create:" line
 local MAX_TAPS = 3000
 
 local db
 local me, realm, myGuid
 local seen = {}          -- corpse / object GUIDs already counted this session
 local taps, tapCount = {}, 0  -- mob GUID -> last state seen while it was alive
-local gatherNames = {}
+local gatherNames = {}   -- spell name -> the spell ID in GATHER_SPELLS (every rank shares the name)
 local lastGather, lastXp = -100, -100
+local lastGatherSkill
+local touched, touchedAt = nil, -100  -- the last bag item clicked or used: what a disenchant was cast on
+local disenchanted                    -- that item, once a disenchant cast finished
+local lastSpell, lastSpellAt = nil, -100
 local lastKill, lastKillTime
 local window, line1, line2
 
@@ -85,7 +92,7 @@ local function refresh()
 end
 
 -- One event per corpse / object. A window can hold several sources (area loot): each gets its own event.
-local function readWindow(gathering)
+local function readWindow(gathering, skill)
 	local bySource, order = {}, {}
 	for slot = 1, GetNumLootItems() do
 		local link = plain(GetLootSlotLink(slot))
@@ -107,7 +114,10 @@ local function readWindow(gathering)
 					if kind == "Creature" or kind == "Vehicle" then e.src, e.npc = "mob", id
 					elseif kind == "GameObject" then e.src, e.obj = "object", id
 					else e.src = "other" end
-					if gathering then e.how = "gather" end
+					if gathering then
+						e.how, e.skill = "gather", skill
+						if skill == DISENCHANT then e.from = disenchanted end
+					end
 					bySource[guid] = e
 					order[#order + 1] = guid
 				end
@@ -124,8 +134,12 @@ local function readWindow(gathering)
 end
 
 local function onLootReady()
-	local gathering = GetTime() - lastGather < GATHER_WINDOW or (IsFishingLoot and plain(IsFishingLoot()) == true)
-	local bySource, order = readWindow(gathering)
+	local fishing = IsFishingLoot and plain(IsFishingLoot()) == true
+	local recent = GetTime() - lastGather < GATHER_WINDOW
+	local gathering = recent or fishing
+	local skill = fishing and FISHING or (recent and lastGatherSkill or nil)
+	local bySource, order = readWindow(gathering, skill)
+	if skill == DISENCHANT then disenchanted = nil end
 	for _, guid in ipairs(order) do
 		local ev = bySource[guid]
 		-- Pick pocketing leaves the mob alive, so its real corpse must still count later
@@ -183,7 +197,31 @@ end
 local function onSpell(unit, _, spellId)
 	if plain(unit) ~= "player" then return end
 	spellId = plain(spellId)
-	if spellId and gatherNames[C_Spell.GetSpellName(spellId) or ""] then lastGather = GetTime() end
+	if not spellId then return end
+	lastSpell, lastSpellAt = spellId, GetTime()
+	local skill = gatherNames[C_Spell.GetSpellName(spellId) or ""]
+	if skill then
+		lastGather, lastGatherSkill = GetTime(), skill
+		if skill == DISENCHANT then
+			disenchanted = GetTime() - touchedAt < TOUCH_WINDOW and touched or nil
+		end
+	end
+end
+
+-- Disenchanting targets a bag item, and no event says which: the last bag item clicked (or used) before the cast is it.
+-- Post-hooks only (hooksecurefunc), so nothing of Blizzard's is tainted.
+local function onTouch(bag, slot)
+	local get = C_Container and C_Container.GetContainerItemLink or GetContainerItemLink
+	local link = get and plain(get(bag, slot))
+	local id = type(link) == "string" and tonumber(link:match("|Hitem:(%d+)"))
+	if id then touched, touchedAt = id, GetTime() end
+end
+
+local function hookBags()
+	for _, name in ipairs({ "PickupContainerItem", "UseContainerItem" }) do
+		if C_Container and C_Container[name] then hooksecurefunc(C_Container, name, onTouch) end
+		if _G[name] then hooksecurefunc(name, onTouch) end
+	end
 end
 
 -- Global strings like "%s receives loot: %s." -> a pattern with two captures. The final full stop is optional:
@@ -195,9 +233,11 @@ local function pattern(s)
 	return "^" .. s .. "%.?$"
 end
 
-local SELF, OTHER, SELF_N, OTHER_N, WON, YOU_WON
+local SELF, OTHER, SELF_N, OTHER_N, WON, YOU_WON, MADE, MADE_N
 
 local function setupPatterns()
+	MADE = LOOT_ITEM_CREATED_SELF and pattern(LOOT_ITEM_CREATED_SELF)
+	MADE_N = LOOT_ITEM_CREATED_SELF_MULTIPLE and pattern(LOOT_ITEM_CREATED_SELF_MULTIPLE)
 	SELF = LOOT_ITEM_SELF and pattern(LOOT_ITEM_SELF)
 	OTHER = LOOT_ITEM and pattern(LOOT_ITEM)
 	SELF_N = LOOT_ITEM_SELF_MULTIPLE and pattern(LOOT_ITEM_SELF_MULTIPLE)
@@ -223,6 +263,19 @@ local function onLootChat(msg)
 	end
 	msg = withoutHistoryLink(msg)
 	local a, b, c
+	-- "You create: [Linen Bandage]x2": crafting, with the recipe cast just before it
+	if MADE_N then
+		a, b = msg:match(MADE_N)
+		if not (a and itemOf(a)) then a = nil end
+	end
+	if not a and MADE then
+		a = msg:match(MADE)
+		if a and itemOf(a) then b = 1 else a = nil end
+	end
+	if a then
+		local spell = GetTime() - lastSpellAt < CRAFT_WINDOW and lastSpell or nil
+		return add({ type = "made", item = itemOf(a), count = tonumber(b) or 1, spell = spell })
+	end
 	if YOU_WON then
 		a = msg:match(YOU_WON)
 		if a and itemOf(a) then return add({ type = "won", item = itemOf(a), who = me }) end
@@ -316,8 +369,9 @@ local function start()
 	db.stats = countStats()
 	for _, spell in ipairs(GATHER_SPELLS) do
 		local name = C_Spell and C_Spell.GetSpellName(spell)
-		if name then gatherNames[name] = true end
+		if name then gatherNames[name] = spell end
 	end
+	pcall(hookBags)
 	local _, class = UnitClass("player")
 	local _, _, _, interface = GetBuildInfo()
 	db.realm, db.player, db.faction, db.class = realm, me, UnitFactionGroup("player"), class

@@ -30,6 +30,7 @@ MAX_CHARACTERS = 50
 MAX_NAME = 60
 OBJECT_ACTIONS = {"Opening": None, "Mining": "gather", "HerbGathering": "gather", "Herb Gathering": "gather"}
 FISHING_BOBBER = "35591"  # real files record fishing as "Opening" this object
+SKILLS = {"Mining": 2575, "HerbGathering": 2366, "Herb Gathering": 2366}  # the addon's gather spell IDs
 
 
 class NotForever(Exception):
@@ -162,7 +163,8 @@ def convert(top):
                     ev.update(src="mob", npc=int(wid), name=name, zone=zone)
                 elif kind == "object" and action in OBJECT_ACTIONS and wid.isdigit():
                     ev.update(src="object", obj=int(wid), zone=objects.get(wid),
-                              how="gather" if wid == FISHING_BOBBER else OBJECT_ACTIONS[action])
+                              how="gather" if wid == FISHING_BOBBER else OBJECT_ACTIONS[action],
+                              skill=7620 if wid == FISHING_BOBBER else SKILLS.get(action))
                 elif kind in ("npc", "object"):
                     skipped["otherAction"] += 1
                     continue

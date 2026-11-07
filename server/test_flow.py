@@ -112,6 +112,8 @@ def main():
             "future": save().replace(str(NOW + 1).encode(), str(NOW + 900000).encode()),
             "bad item": save().replace(b"id = 2589", b"id = -1"),
             "unknown key": save(extra='["evil"] = 1,'),
+            "bad craft": save().replace(b'type = "got", item = 1234, count = 1, who = "Bob"', b'type = "made", item = 1234, count = 0'),
+            "bad skill": save().replace(b'src = "object", obj = 1731', b'src = "object", obj = 1731, how = "gather", skill = -2'),
         }
         for name, body in refused.items():
             s, r = call("POST", "/upload/api/upload", body, code)
@@ -187,7 +189,50 @@ def main():
         assert (hog["corpses"], hog["kills"]) == (7, 11), hog
         assert next(x for x in hog["drops"] if x["id"] == 2589)["times"] == 8, hog
         assert d["bosses"][0]["kills"] == 3 and d["bosses"][0]["wipes"] == 3 and d["bosses"][0]["bestSecs"] == 95
-        print("ok: refusals, review, approve, duplicate events, site build")
+        assert all(not z["instance"] for z in d["zones"]), d["zones"]
+        fish = next(g for g in d["gathering"] if g["skill"] == "Fishing")
+        assert fish["source"] == {"kind": "zone", "name": "Unknown"} or fish["source"]["kind"] == "zone", fish
+
+        # 0.5.0: instances with runs, gathering by skill and source, crafting, class per character
+        s, r = call("POST", "/admin/api/code", {"name": "Crafter"})
+        crafter = save("Crafter", extra='["chars"] = { ["Player-1-Crafter"] = { player = "Crafter", realm = "Testrealm", class = "PRIEST", faction = "Horde" } },')
+        rfc = 'zone = "Orgrimmar", inst = "Ragefire Chasm", instId = 389, diff = "Normal"'
+        more = " ".join([
+            f'{{ id = "Player-1-Crafter:50", t = {NOW + 50}, type = "loot", src = "mob", npc = 11520, g = "R1", {rfc}, copper = 30, items = {{ {{ id = 14148, count = 1, q = 3 }}, {{ id = 2589, count = 1, q = 1 }} }} }},',
+            f'{{ id = "Player-1-Crafter:51", t = {NOW + 60}, type = "boss", encounter = 2733, name = "Taragaman", ok = 1, secs = 21, {rfc} }},',
+            f'{{ id = "Player-1-Crafter:52", t = {NOW + 50 + 7200}, type = "loot", src = "mob", npc = 11520, g = "R2", {rfc}, items = {{ {{ id = 14148, count = 1, q = 3 }} }} }},',
+            f'{{ id = "Player-1-Crafter:53", t = {NOW + 70}, zone = "Durotar", type = "loot", src = "object", obj = 1617, how = "gather", skill = 2366, items = {{ {{ id = 765, count = 2, q = 1 }} }} }},',
+            f'{{ id = "Player-1-Crafter:54", t = {NOW + 71}, zone = "Durotar", type = "loot", src = "other", how = "gather", skill = 13262, ["from"] = 2582, items = {{ {{ id = 10940, count = 1, q = 1 }} }} }},',
+            f'{{ id = "Player-1-Crafter:55", t = {NOW + 72}, zone = "Durotar", type = "loot", src = "other", how = "gather", items = {{ {{ id = 10938, count = 1, q = 2 }} }} }},',
+            f'{{ id = "Player-1-Crafter:56", t = {NOW + 73}, zone = "Durotar", type = "made", item = 1251, count = 2, spell = 3275 }},',
+            f'{{ id = "Player-1-Crafter:57", t = {NOW + 74}, zone = "Durotar", type = "made", item = 1251, count = 1 }},',
+        ])
+        crafter = crafter.replace(b'["events"] = { ', b'["events"] = { ' + more.encode() + b' ')
+        s, r = call("POST", "/upload/api/upload", crafter, r["code"])
+        assert s == 200, r
+        uid6 = call("GET", "/admin/api/list")[1]["queue"][0]["id"]
+        assert call("POST", "/admin/api/approve", {"id": uid6})[0] == 200
+        subprocess.run([sys.executable, os.path.join(HERE, "build_site.py"), data, out], check=True)
+        with open(out, encoding="utf-8") as f:
+            d = json.load(f)
+        rf = next(i for i in d["instances"] if i["name"] == "Ragefire Chasm")
+        assert (rf["runs"], rf["corpses"], rf["items"], rf["copper"], rf["bossKills"]) == (2, 2, 3, 30, 1), rf
+        assert rf["drops"] == [{"id": 14148, "q": 3, "times": 2, "npc": 11520, "npcName": None}], rf["drops"]
+        assert rf["mobs"] == [{"id": 11520, "name": None, "corpses": 2}] and rf["bosses"][0]["name"] == "Taragaman", rf
+        dm = next(i for i in d["instances"] if i["name"] == "Deadmines")
+        assert dm["bossKills"] == 5 and dm["corpses"] == 0, dm
+        g = {(x["skill"], json.dumps(x["source"], sort_keys=True)): x for x in d["gathering"]}
+        herb = g[("Herbalism", '{"id": 1617, "kind": "object"}')]
+        assert herb["times"] == 1 and herb["items"] == [{"id": 765, "q": 1, "times": 1, "count": 2}], herb
+        assert g[("Disenchanting", '{"id": 2582, "kind": "item"}')]["times"] == 1
+        assert g[("Disenchanting", '{"kind": "unknown"}')]["items"][0]["id"] == 10938
+        assert d["crafting"] == [{"id": 1251, "times": 2, "count": 3, "spell": 3275, "by": ["Crafter-Testrealm"]}], d["crafting"]
+        c = next(p for p in d["players"] if p["name"] == "Crafter-Testrealm")
+        assert (c["class"], c["faction"], c["gathers"], c["crafts"]) == ("PRIEST", "Horde", 3, 2), c
+        assert c["made"] == [{"id": 1251, "count": 3, "q": None}] and {i["id"] for i in c["gathered"]} == {765, 10940, 10938}, c
+        assert 14148 in {i["id"] for i in c["loot"]} and 765 not in {i["id"] for i in c["loot"]}, c["loot"]
+        assert d["totals"]["crafted"] == 3, d["totals"]
+        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting")
     finally:
         srv.terminate()
         srv.wait()

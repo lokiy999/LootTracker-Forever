@@ -80,12 +80,16 @@ Background (research 2026-11-04):
 - [x] 6.2 Replace db.lokiy.dev with Wowhead (Forever): icons, tooltips (Wowhead tooltip script), item and mob links,
       names of items the addon didn't record (~37 db.lokiy.dev references in the V+ loot scripts and page). 
 - [x] 6.3 Texts: "WoW Forever" instead of Vanilla+, plus an upload guide.
-- [ ] 6.4 Pages: per mob (kills, drop rates), per item (drops, sources), per zone/instance, per boss, and a personal
-      "what I looted" view per uploader. **Draft: mobs, items, zones, bosses, per player.**
+- [x] 6.4 Pages: per mob (kills, drop rates), per item (drops, sources), per zone/instance, per boss, and a personal
+      "what I looted" view per uploader. Tabs (2026-11-07): Mobs, Items, Instances (runs, bosses, drops, mobs), Zones,
+      Gathering, Crafting, Characters (loot / gathered / crafted kept apart).
 - [x] 6.5 Show sample sizes (e.g. "3 drops / 41 kills") so low counts aren't misleading.
 
 ## 7. Release
 - [ ] 7.1 "How to edit" for the addon, upload flow, cron job and site: README + the admin page (standing rule). **README updated; admin page link still to add.**
 - [ ] 7.2 Package the addon from `addon/`. **Private (Lokiy, 2026-11-05): no CurseForge, no public page.** For now it's a password-protected zip at forever.lokiy.dev/admin/.
-- [ ] 7.3 Link the Forever loot site from lokiy.dev, with V+ and Forever clearly separate.
-- [ ] 7.4 **(Lokiy)** First real uploads; check the site.
+- [x] 7.3 Link the Forever loot site from lokiy.dev, with V+ and Forever clearly separate. **Not wanted (Lokiy,
+      2026-11-07): the site stays reachable by its address only.**
+- [x] 7.4 **(Lokiy)** First real uploads; check the site. First upload approved 2026-11-07 (Lokiy and Udolamin).
+- [ ] 7.5 **(Lokiy)** Play with 0.5.0 and upload: does a disenchant name the item (`from`), does crafting show up, does
+      each gather name its skill? The item-click hook is the part that can't be tested outside the game.

@@ -40,6 +40,9 @@
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   tr.open { cursor: pointer; } tr.open:hover { background: var(--panel-2); }
   tr.sub td { background: var(--panel-2); padding-left: 28px; }
+  tr.sec td { color: var(--muted); font-size: .74rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    padding-top: 12px; padding-bottom: 4px; }
+  .who { color: var(--faint); font-size: .8rem; margin-left: 6px; }
   .small { color: var(--faint); font-size: .8rem; }
   .q0 { color: var(--q0); } .q1 { color: var(--q1); } .q2 { color: var(--q2); }
   .q3 { color: var(--q3); } .q4 { color: var(--q4); } .q5 { color: var(--q5); }
@@ -62,7 +65,8 @@
   <p class="note">Rates are per kill, from players' uploads. A kill counts when its corpse was looted, or when a player on
     their own killed a mob of theirs and it left nothing. Kills in a group count once looted, because the rest may have
     gone to someone else, so rates can read a little high. In dungeons the game hides which mob died, so there rates are per
-    looted corpse. Low counts mean little: check the numbers next to each rate.</p>
+    looted corpse. Gathering, disenchanting and crafting have their own tabs and never count as drops. Low counts mean
+    little: check the numbers next to each rate.</p>
   <footer>Item and NPC details from <a href="https://www.wowhead.com/forever">Wowhead</a>.
     Not affiliated with Blizzard. <a href="/upload/">Upload your data</a></footer>
 </div>
@@ -76,8 +80,24 @@
   const pct = (a, b) => b ? `${(a / b * 100).toFixed(a / b < .1 ? 2 : 1)}%` : "–";
   const item = (i) => `<a class="q${i.q ?? 1}" href="${WOWHEAD}/item=${i.id}">item ${i.id}</a>`;
   const npc = (m) => `<a href="${WOWHEAD}/npc=${m.id}">${esc(m.name || `NPC ${m.id}`)}</a>`;
+  const spell = (id) => `<a href="${WOWHEAD}/spell=${id}">spell ${id}</a>`;
+  const secs = (s) => s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "–";
+  const CLASS = { WARRIOR: "#c69b6d", PALADIN: "#f48cba", HUNTER: "#aad372", ROGUE: "#fff468", PRIEST: "#ffffff",
+    SHAMAN: "#0070dd", MAGE: "#3fc7eb", WARLOCK: "#8788ee", DRUID: "#ff7c0a" };
+  const title = (s) => s ? s.charAt(0) + s.slice(1).toLowerCase() : "";
+  // "Lokiy-CAMWOW EU5 Realm 7 PvE" -> the name in its class colour, the rest small
+  const who = (p) => { const i = p.name.indexOf("-"), name = i > 0 ? p.name.slice(0, i) : p.name, realm = i > 0 ? p.name.slice(i + 1) : "";
+    const extra = [title(p.class), p.faction, realm].filter(Boolean).join(" · ");
+    return `<span style="color:${CLASS[p.class] || "inherit"}">${esc(name)}</span>${extra ? `<span class="who">${esc(extra)}</span>` : ""}`; };
+  const source = (s) => s.kind === "zone" ? esc(s.name)
+    : s.kind === "object" ? `<a href="${WOWHEAD}/object=${s.id}">object ${s.id}</a>`
+    : s.kind === "npc" ? npc(s) : s.kind === "item" ? item({ id: s.id })
+    : '<span class="small">not recorded (addon before 0.5.0)</span>';
+  const srcKey = (s) => `${s.kind}:${s.id ?? s.name ?? ""}`;
+  const listOf = (k) => (data && data[k]) || [];
   let data, tab = "mobs", term = "", open = null;
 
+  // A sub list is rows of cells; a plain string is a section heading inside it
   const TABS = {
     mobs: { label: "Mobs", key: (m) => `${m.name} ${m.id}`, head: ["Mob", ["Kills", 1], ["Gold each", 1], ["Items seen", 1]],
       list: () => data.mobs, id: (m) => m.id, row: (m) => [npc(m), m.kills, gold(m.copper / m.kills | 0), m.drops.length],
@@ -85,28 +105,52 @@
     items: { label: "Items", key: (i) => `${i.id}`, head: ["Item", ["Times dropped", 1], ["Total", 1]],
       list: () => data.items, id: (i) => i.id, row: (i) => [item(i), i.times, i.count],
       sub: (i) => i.mobs.map((m) => [npc(m), `${m.times} / ${m.kills}`, pct(m.times, m.kills)]) },
-    zones: { label: "Zones", key: (z) => z.name, head: ["Zone or instance", ["Looted", 1], ["Items", 1], ["Gold", 1]],
-      list: () => data.zones, row: (z) => [esc(z.name) + (z.instance ? ' <span class="small">instance</span>' : ""), z.corpses, z.items, gold(z.copper)] },
-    bosses: { label: "Bosses", key: (b) => `${b.name} ${b.inst}`, head: ["Boss", "Instance", ["Kills", 1], ["Wipes", 1], ["Best", 1]],
-      list: () => data.bosses, row: (b) => [esc(b.name || b.encounter), esc(b.inst || "–"), b.kills, b.wipes,
-        b.bestSecs ? `${Math.floor(b.bestSecs / 60)}:${String(b.bestSecs % 60).padStart(2, "0")}` : "–"] },
-    players: { label: "My loot", key: (p) => p.name, head: ["Player", ["Kills", 1], ["Looted", 1], ["Gold", 1], ["Different items", 1]],
-      list: () => data.players, id: (p) => p.name, row: (p) => [esc(p.name), p.kills, p.corpses, gold(p.copper), p.items.length],
-      sub: (p) => p.items.map((i) => [item(i), `×${i.count}`]) },
+    instances: { label: "Instances", key: (x) => `${x.name} ${x.bosses.map((b) => b.name).join(" ")}`,
+      head: ["Instance", ["Runs", 1], ["Boss kills", 1], ["Looted", 1], ["Gold", 1]],
+      list: () => listOf("instances"), id: (x) => x.name, row: (x) => [esc(x.name), x.runs, x.bossKills, x.corpses, gold(x.copper)],
+      sub: (x) => [
+        ...(x.bosses.length ? ["Bosses", ...x.bosses.map((b) => [esc(b.name || b.encounter), `${b.kills} killed`,
+          `${b.wipes} wipes`, `best ${secs(b.bestSecs)}`])] : []),
+        ...(x.drops.length ? ["Green and better drops", ...x.drops.map((d) => [item(d), `${d.times}×`,
+          d.npc ? npc({ id: d.npc, name: d.npcName }) : ""])] : []),
+        ...(x.mobs.length ? ["Mobs looted", ...x.mobs.map((m) => [npc(m), `${m.corpses} looted`])] : []),
+      ] },
+    zones: { label: "Zones", key: (z) => z.name, head: ["Zone", ["Looted", 1], ["Items", 1], ["Gold", 1]],
+      list: () => listOf("zones").filter((z) => !z.instance), row: (z) => [esc(z.name), z.corpses, z.items, gold(z.copper)] },
+    gathering: { label: "Gathering", key: (g) => `${g.skill} ${g.source.name || ""} ${g.source.id || ""}`,
+      head: ["Skill", "From", ["Times", 1], ["Items", 1]],
+      list: () => listOf("gathering"), id: (g) => `${g.skill}|${srcKey(g.source)}`,
+      row: (g) => [esc(g.skill), source(g.source), g.times, g.items.length],
+      sub: (g) => g.items.map((d) => [item(d), `${d.times} / ${g.times}`, pct(d.times, g.times), `×${d.count}`]) },
+    crafting: { label: "Crafting", empty: "Nothing crafted yet: LootTracker Forever records crafting from version 0.5.0.", key: (c) => `${c.id} ${c.by.join(" ")}`, head: ["Item", "Recipe", ["Made", 1], ["Crafts", 1], "By"],
+      list: () => listOf("crafting"), row: (c) => [item(c), c.spell ? spell(c.spell) : "–", c.count, c.times,
+        esc(c.by.map((n) => n.split("-")[0]).join(", "))] },
+    players: { label: "Characters", key: (p) => `${p.name} ${p.class || ""}`,
+      head: ["Character", ["Kills", 1], ["Looted", 1], ["Gold", 1], ["Gathered", 1], ["Crafted", 1]],
+      list: () => listOf("players"), id: (p) => p.name,
+      row: (p) => [who(p), p.kills, p.corpses, gold(p.copper), p.gathers ?? 0, p.crafts ?? 0],
+      sub: (p) => [
+        ...((p.loot || p.items || []).length ? ["Loot", ...(p.loot || p.items).map((i) => [item(i), `×${i.count}`])] : []),
+        ...((p.gathered || []).length ? ["Gathered", ...p.gathered.map((i) => [item(i), `×${i.count}`])] : []),
+        ...((p.made || []).length ? ["Crafted", ...p.made.map((i) => [item(i), `×${i.count}`])] : []),
+      ] },
   };
 
   function render() {
     const t = TABS[tab], view = document.getElementById("view");
     document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.t === tab));
     const rows = t.list().filter((x) => !term || t.key(x).toLowerCase().includes(term));
-    if (!rows.length) { view.innerHTML = `<div class="empty">${term ? "Nothing matches." : "No uploads yet."}</div>`; return; }
+    if (!rows.length) { view.innerHTML = `<div class="empty">${term ? "Nothing matches." : esc(t.empty || "No uploads yet.")}</div>`; return; }
     const num = (c, i) => (t.head[i] && Array.isArray(t.head[i]) ? ' class="num"' : "");
     let h = `<table><tr>${t.head.map((c) => Array.isArray(c) ? `<th class="num">${c[0]}</th>` : `<th>${c}</th>`).join("")}</tr>`;
     for (const x of rows.slice(0, 500)) {
       const id = t.sub ? t.id(x) : null;
       h += `<tr${t.sub ? ` class="open" data-id="${esc(id)}"` : ""}>${t.row(x).map((c, i) => `<td${num(c, i)}>${c}</td>`).join("")}</tr>`;
       if (t.sub && String(open) === String(id)) {
-        for (const s of t.sub(x)) h += `<tr class="sub">${s.map((c, i) => `<td${i ? ' class="num"' : ""}>${c}</td>`).join("")}${"<td></td>".repeat(Math.max(0, t.head.length - s.length))}</tr>`;
+        for (const s of t.sub(x)) {
+          if (typeof s === "string") { h += `<tr class="sub sec"><td colspan="${t.head.length}">${esc(s)}</td></tr>`; continue; }
+          h += `<tr class="sub">${s.map((c, i) => `<td${i ? ' class="num"' : ""}>${c}</td>`).join("")}${"<td></td>".repeat(Math.max(0, t.head.length - s.length))}</tr>`;
+        }
       }
     }
     view.innerHTML = h + "</table>";
@@ -131,7 +175,7 @@
     document.getElementById("big").innerHTML = [[d.totals.kills.toLocaleString(), "Kills"], [d.totals.items.toLocaleString(), "Items seen"],
       [gold(d.totals.copper), "Gold looted"], [d.totals.bossKills, "Boss kills"]].map(([n, l]) => `<div class="bigstat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
     render();
-  }).catch(() => { document.getElementById("updated").textContent = "No data yet."; data = { mobs: [], items: [], zones: [], bosses: [], players: [] }; render(); });
+  }).catch(() => { document.getElementById("updated").textContent = "No data yet."; data = { mobs: [], items: [], zones: [], instances: [], gathering: [], crafting: [], players: [] }; render(); });
 </script>
 </body>
 </html>

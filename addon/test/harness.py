@@ -45,7 +45,16 @@ CanLootUnit = function(g) return has_loot[g] or false, true end
 UnitIsTapDenied = function(u) return tap_denied or false end
 GetNumGroupMembers = function() return group_size or 0 end
 IsFishingLoot = function() return false end
-C_Spell = {GetSpellName = function(id) return ({[8613] = "Skinning", [921] = "Pick Pocket", [7620] = "Fishing"})[id] end}
+C_Spell = {GetSpellName = function(id) return ({[8613] = "Skinning", [921] = "Pick Pocket", [7620] = "Fishing",
+  [13262] = "Disenchant", [2366] = "Herb Gathering", [2575] = "Mining", [3275] = "Linen Bandage"})[id] end}
+bags = {}
+C_Container = {GetContainerItemLink = function(b, s) return bags[b .. ":" .. s] end,
+  PickupContainerItem = function() end, UseContainerItem = function() end}
+function hooksecurefunc(t, name, fn)
+  if type(t) == "string" then t, name, fn = _G, t, name end
+  local old = t[name]
+  t[name] = function(...) local r = old(...); fn(...); return r end
+end
 GetBuildInfo = function() return "1.60.1", "1", "Nov 2026", 16001 end
 GetRealZoneText = function() return "Elwynn Forest" end
 GetRealmName = function() return "Testrealm" end
@@ -78,6 +87,8 @@ LOOT_ITEM_MULTIPLE = "%s receives loot: %sx%d."
 LOOT_ROLL_WON = "%s won: %s"
 LOOT_ROLL_YOU_WON = "You won: %s"
 COMBATLOG_XPGAIN_FIRSTPERSON_UNNAMED = "You gain %d experience."
+LOOT_ITEM_CREATED_SELF = "You create: %s."
+LOOT_ITEM_CREATED_SELF_MULTIPLE = "You create: %sx%d."
 function fire(e, ...)
   for _, f in ipairs(frames) do
     local ev, h = rawget(f, "ev"), rawget(f, "handler")
@@ -160,7 +171,7 @@ def tracker():
     evs = [db.events[i] for i in range(1, len(db.events) + 1)]
     kinds = [e.type for e in evs]
     want = ["login", "kill", "loot", "kill", "kill", "kill", "kill", "loot", "loot", "loot",
-            "got", "got", "got", "got", "won", "won", "kill", "boss"]
+            "got", "got", "got", "got", "won", "won", "made", "kill", "boss"]
     assert kinds == want, kinds
     k, mob = evs[1], evs[2]
     assert (k.npc, k.g, k.by, k.tap, k.name) == (448, "0001", "me", 1, "Hogger"), dict(k)
@@ -172,19 +183,62 @@ def tracker():
     assert evs[5].left == 1 and evs[6].left is None and evs[6].xp is None, dict(evs[6])
     chest, pick, corpse = evs[7], evs[8], evs[9]
     assert (chest.src, chest.obj, chest["items"][1].id) == ("object", 1731, 999)
-    assert (pick.src, pick.how) == ("mob", "gather"), dict(pick)
+    assert (pick.src, pick.how, pick.skill) == ("mob", "gather", 921), dict(pick)
     assert (corpse.src, corpse.how, corpse.copper) == ("mob", None, 7), dict(corpse)
     got = [(e.item, e.count, e.who) for e in evs[10:14]]
     assert got == [(2589, 1, "Tester"), (7074, 2, "Tester"), (1234, 1, "Steve Hyde"), (2589, 3, "Bob")], got
     assert (evs[14].item, evs[14].who) == (1234, "Ann")
     assert (evs[15].item, evs[15].who) == (777, "Tester")
-    hidden = evs[16]
+    made = evs[16]
+    assert (made.item, made.count, made.spell) == (6218, 1, None), dict(made)
+    hidden = evs[17]
     assert (hidden.hidden, hidden.grp, hidden.npc, hidden.inst) == (1, 5, None, "Deadmines"), dict(hidden)
-    boss = evs[17]
+    boss = evs[18]
     assert (boss.name, boss.ok, boss.secs, boss.inst, boss.instId) == ("VanCleef", 1, 90, "Deadmines", 36), dict(boss)
     assert db.guid == "Player-1-ABC" and evs[1].id == "Player-1-ABC:2", evs[1].id
     assert (db.stats.kills, db.stats.corpses, db.stats.copper) == (6, 2, 62), dict(db.stats)
     return lua
+
+
+def gathering():
+    """Each gather says which skill; a disenchant says which item; crafting is a made event with its recipe."""
+    lua = runtime()
+    load(lua, "../LootTrackerForever/LootTrackerForever.lua")
+    lua.execute('''fire("ADDON_LOADED", "LootTrackerForever"); fire("PLAYER_LOGIN")
+      -- a herb node, then a disenchant of the gloves clicked in the bag, then fishing
+      fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", 2366)
+      loot = {{link="|cff|Hitem:765:::|h[Silverleaf]|h|r", count=2, q=1, guid="GameObject-0-1-2-3-1617-0009"}}
+      fire("LOOT_READY", true); fire("LOOT_CLOSED")
+      time_now = time_now + 10
+      bags["0:3"] = "|cff|Hitem:2582:::|h[Gloves]|h|r"
+      C_Container.PickupContainerItem(0, 3)
+      time_now = time_now + 3
+      fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", 13262)
+      loot = {{link="|cff|Hitem:10940:::|h[Dust]|h|r", count=1, q=1, guid="Item-0-1-2-3-0-0010"}}
+      fire("LOOT_READY", true); fire("LOOT_CLOSED")
+      time_now = time_now + 30
+      fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", 13262)
+      loot = {{link="|cff|Hitem:10938:::|h[Essence]|h|r", count=1, q=2, guid="Item-0-1-2-3-0-0011"}}
+      fire("LOOT_READY", true); fire("LOOT_CLOSED")
+      time_now = time_now + 30
+      IsFishingLoot = function() return true end
+      loot = {{link="|cff|Hitem:6291:::|h[Fish]|h|r", count=1, q=0, guid="GameObject-0-1-2-3-35591-0012"}}
+      fire("LOOT_READY", true); fire("LOOT_CLOSED")
+      IsFishingLoot = function() return false end
+      time_now = time_now + 30
+      fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", 3275)
+      time_now = time_now + 1
+      fire("CHAT_MSG_LOOT", "You create: |cff|Hitem:1251:::|h[Bandage]|h|rx2.")
+      time_now = time_now + 30
+      fire("CHAT_MSG_LOOT", "You create: |cff|Hitem:5350:::|h[Water]|h|r.")''')
+    db = lua.eval("LootTrackerForeverDB")
+    assert db.errors is None, db.lastError
+    evs = [db.events[i] for i in range(2, len(db.events) + 1)]
+    got = [(e.type, e.src, e.how, e.skill, e["from"]) for e in evs[:4]]
+    assert got == [("loot", "object", "gather", 2366, None), ("loot", "other", "gather", 13262, 2582),
+                   ("loot", "other", "gather", 13262, None), ("loot", "object", "gather", 7620, None)], got
+    made = [(e.type, e.item, e.count, e.spell) for e in evs[4:]]
+    assert made == [("made", 1251, 2, 3275), ("made", 5350, 1, None)], made
 
 
 def characters():
@@ -248,8 +302,9 @@ def probe():
 
 if __name__ == "__main__":
     tracker()
+    gathering()
     characters()
     secrets()
     probe()
-    print("ok: tracker, characters, secret values, probe")
+    print("ok: tracker, gathering, characters, secret values, probe")
     sys.exit(0)

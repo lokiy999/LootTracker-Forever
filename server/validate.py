@@ -31,7 +31,7 @@ FUTURE_SLACK = 2 * 86400
 
 TOP_KEYS = {"format", "game", "realm", "player", "guid", "chars", "faction", "class", "addon", "interface", "seq", "session",
             "settings", "events", "stats", "skipped", "errors", "lastError", "via", "converted"}
-EVENT_TYPES = {"loot", "kill", "boss", "got", "won", "login"}
+EVENT_TYPES = {"loot", "kill", "boss", "got", "won", "made", "login"}
 SOURCES = {"mob", "object", "other"}
 KILLERS = {"me", "party", "pet"}
 EVENT_ID = re.compile(r"^(Player-\d+-\w+):\d+$")  # the file is shared by an account: each event names its character
@@ -146,6 +146,8 @@ def summarize(text, converted_out=None):
             need(e.get("npc") is None or (is_int(e["npc"]) and e["npc"] > 0), "A loot event has an invalid NPC ID.")
             need(e.get("obj") is None or (is_int(e["obj"]) and e["obj"] > 0), "A loot event has an invalid object ID.")
             need(is_int(e.get("copper", 0)) and 0 <= e.get("copper", 0) < 10 ** 10, "A loot event has invalid money.")
+            for k in ("skill", "from"):
+                need(e.get(k) is None or (is_int(e[k]) and e[k] > 0), f"A loot event has an invalid {k}.")
             corpses += e["src"] == "mob" and not e.get("how")
             for it in as_list(e.get("items")):
                 need(isinstance(it, dict) and is_int(it.get("id")) and it["id"] > 0, "A looted item has no valid item ID.")
@@ -162,6 +164,10 @@ def summarize(text, converted_out=None):
             kills += 1
         elif kind == "boss":
             bosses += 1
+        elif kind == "made":
+            need(is_int(e.get("item")) and e["item"] > 0, "A crafted item has no valid item ID.")
+            need(is_int(e.get("count", 1)) and 0 < e.get("count", 1) < 10000, "A crafted item has an invalid count.")
+            need(e.get("spell") is None or (is_int(e["spell"]) and e["spell"] > 0), "A crafted item has an invalid recipe.")
         elif kind in ("got", "won"):
             need(is_int(e.get("item")) and e["item"] > 0, "A loot line has no valid item ID.")
     need(corpses or items or bosses or kills, "The file has no loot data yet.")

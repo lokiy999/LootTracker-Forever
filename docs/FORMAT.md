@@ -11,7 +11,7 @@ LootTrackerForeverDB = {
   realm = "Realm", player = "Name", faction = "Alliance", class = "MAGE",
   guid = "Player-6949-00A39D60", -- the character that last saved: name + realm may not be unique on Forever
   chars = { ["Player-6949-00A39D60"] = { player = "Name", realm = "Realm", faction = "Alliance", class = "MAGE" } },
-  addon = "0.4.0", interface = 16001,
+  addon = "0.5.0", interface = 16001,
   seq = 12,                 -- last event number used
   session = 3,              -- logins so far
   settings = { ... },       -- window position; not read by the site
@@ -31,7 +31,8 @@ Every event has `id` (`<guid>:seq`, unique, so an event in two uploads counts on
 |---|---|---|
 | `kill` (dungeon) | `hidden` = 1, `grp`; no `npc`, `g` or `by` | PARTY_KILL inside an instance, where the game makes both GUIDs secret |
 | `kill` | `npc`, `g`, `name`, `by` (`me` / `party` / `pet`), `tap` (1 ours, 0 someone else's, missing if never seen alive), `xp` (1 paid XP), `grp` (group size, if grouped), `left` (1 corpse had loot for you) | PARTY_KILL |
-| `loot` | `src` (`mob` / `object` / `other`), `npc` or `obj` (ID), `g`, `name` (if known), `how` (`gather`: skinning, mining, herbs, pick pocketing, fishing, disenchanting), `items` = list of `{id, count, q}`, `copper` | one corpse or object opened; each is counted once per session by its GUID |
+| `loot` | `src` (`mob` / `object` / `other`), `npc` or `obj` (ID), `g`, `name` (if known), `how` (`gather`: skinning, mining, herbs, pick pocketing, fishing, disenchanting), `skill` (0.5.0: the gather spell ID, 8613 skinning, 2575 mining, 2366 herbs, 921 pick pocketing, 7620 fishing, 13262 disenchanting), `from` (0.5.0, disenchanting: the item disenchanted), `items` = list of `{id, count, q}`, `copper` | one corpse or object opened; each is counted once per session by its GUID |
+| `made` | `item`, `count`, `spell` (the recipe cast just before, if within 3 seconds) | 0.5.0: a "You create:" line, i.e. crafting (conjured food and water too) |
 | `boss` | `encounter`, `name`, `size`, `difficulty` (ID), `ok` (1 = killed, 0 = wipe), `secs` | ENCOUNTER_END |
 | `got` | `item`, `count`, `who` | a loot chat line: what someone received, the only record of group and master loot handouts |
 | `won` | `item`, `who` | a roll won |
