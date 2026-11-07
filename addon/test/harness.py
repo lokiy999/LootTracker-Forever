@@ -220,6 +220,10 @@ def gathering():
       fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", 13262)
       loot = {{link="|cff|Hitem:10938:::|h[Essence]|h|r", count=1, q=2, guid="Item-0-1-2-3-0-0011"}}
       fire("LOOT_READY", true); fire("LOOT_CLOSED")
+      -- a corpse opened a second later is a normal corpse, even when the game fires LOOT_READY twice
+      time_now = time_now + 1
+      loot = {{link="|cff|Hitem:6379:::|h[Inscribed Leather Belt]|h|r", count=1, q=2, guid="Creature-0-1-2-3-250629-0013"}}
+      fire("LOOT_READY", true); fire("LOOT_READY", true); fire("LOOT_CLOSED")
       time_now = time_now + 30
       IsFishingLoot = function() return true end
       loot = {{link="|cff|Hitem:6291:::|h[Fish]|h|r", count=1, q=0, guid="GameObject-0-1-2-3-35591-0012"}}
@@ -234,10 +238,12 @@ def gathering():
     db = lua.eval("LootTrackerForeverDB")
     assert db.errors is None, db.lastError
     evs = [db.events[i] for i in range(2, len(db.events) + 1)]
-    got = [(e.type, e.src, e.how, e.skill, e["from"]) for e in evs[:4]]
+    got = [(e.type, e.src, e.how, e.skill, e["from"]) for e in evs[:5]]
     assert got == [("loot", "object", "gather", 2366, None), ("loot", "other", "gather", 13262, 2582),
-                   ("loot", "other", "gather", 13262, None), ("loot", "object", "gather", 7620, None)], got
-    made = [(e.type, e.item, e.count, e.spell) for e in evs[4:]]
+                   ("loot", "other", "gather", 13262, None), ("loot", "mob", None, None, None),
+                   ("loot", "object", "gather", 7620, None)], got
+    assert db.stats.corpses == 1, dict(db.stats)
+    made = [(e.type, e.item, e.count, e.spell) for e in evs[5:]]
     assert made == [("made", 1251, 2, 3275), ("made", 5350, 1, None)], made
 
 

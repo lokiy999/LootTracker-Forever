@@ -31,6 +31,7 @@ OUT = sys.argv[2] if len(sys.argv) > 2 else "/var/www/forever/loot.json"
 SKILLS = {8613: "Skinning", 2575: "Mining", 2366: "Herbalism", 921: "Pick Pocketing", 7620: "Fishing",
           13262: "Disenchanting"}
 FISHING_BOBBER = 35591
+DISENCHANT = 13262
 RUN_GAP = 3600  # an hour without anything in the instance starts a new run
 
 
@@ -57,6 +58,19 @@ def events(info=None):
             if not e["wowhead"]:
                 info.setdefault(e["uploader"], {}).update(char_info(db, guid))
             out.setdefault(e["id"], e)
+    # Addon 0.5.0 called a corpse opened within seconds of a disenchant part of it, often twice (fixed in 0.5.1):
+    # that is a normal corpse, recorded once
+    again = {(e["uploader"], e.get("npc"), e.get("g")) for e in out.values()
+             if e["type"] == "loot" and e.get("src") == "mob" and not e.get("how")}
+    for k, e in sorted(out.items(), key=lambda kv: kv[1]["t"]):
+        if e["type"] == "loot" and e.get("skill") == DISENCHANT and e.get("src") == "mob":
+            key = (e["uploader"], e.get("npc"), e.get("g"))
+            if key in again:
+                del out[k]
+                continue
+            again.add(key)
+            for f in ("how", "skill", "from"):
+                e.pop(f, None)
     # Our addon and Wowhead's see the same corpses: for a character's day, the addon's record wins
     days = {(e["uploader"], e["t"] // 86400) for e in out.values() if not e["wowhead"] and e["type"] == "loot"}
     return {k: e for k, e in out.items() if not (e["wowhead"] and (e["uploader"], e["t"] // 86400) in days)}

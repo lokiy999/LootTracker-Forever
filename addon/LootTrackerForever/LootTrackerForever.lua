@@ -4,7 +4,7 @@
 -- DRAFT: replayed against real LootProbe data, but this addon itself hasn't run in game yet (TODO 4.7).
 
 local ADDON = "LootTrackerForever"
-local VERSION = "0.5.0"
+local VERSION = "0.5.1"
 
 local issecret = issecretvalue or function() return false end
 
@@ -114,7 +114,8 @@ local function readWindow(gathering, skill)
 					if kind == "Creature" or kind == "Vehicle" then e.src, e.npc = "mob", id
 					elseif kind == "GameObject" then e.src, e.obj = "object", id
 					else e.src = "other" end
-					if gathering then
+					-- Disenchanting gives an item's loot: a corpse opened right after it is a normal corpse
+					if gathering and not (skill == DISENCHANT and e.src ~= "other") then
 						e.how, e.skill = "gather", skill
 						if skill == DISENCHANT then e.from = disenchanted end
 					end
@@ -139,13 +140,14 @@ local function onLootReady()
 	local gathering = recent or fishing
 	local skill = fishing and FISHING or (recent and lastGatherSkill or nil)
 	local bySource, order = readWindow(gathering, skill)
-	if skill == DISENCHANT then disenchanted = nil end
 	for _, guid in ipairs(order) do
 		local ev = bySource[guid]
+		-- One disenchant is one loot window: a bag or clam opened just after it is not part of it
+		if ev.skill == DISENCHANT then disenchanted, lastGather = nil, 0 end
 		-- Pick pocketing leaves the mob alive, so its real corpse must still count later
-		if not (gathering and ev.src == "mob") then seen[guid] = true end
+		if not (ev.how and ev.src == "mob") then seen[guid] = true end
 		add(ev)
-		if ev.src == "mob" and not gathering then db.stats.corpses = db.stats.corpses + 1 end
+		if ev.src == "mob" and not ev.how then db.stats.corpses = db.stats.corpses + 1 end
 		db.stats.items = db.stats.items + #ev.items
 		db.stats.copper = db.stats.copper + (ev.copper or 0)
 	end

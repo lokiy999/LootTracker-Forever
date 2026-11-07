@@ -76,3 +76,12 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
 - `server/validate.py` accepts those; `convert_wowhead.py` gives Wowhead's mining, herb and fishing loot their skill.
   Uploads from before 0.5.0 have no skill: the site guesses it from the source ("Herbalism or Mining").
 - Tests: `addon/test/harness.py` (new gathering test), `server/test_flow.py` (instances, gathering, crafting, class).
+
+## 2026-11-08: Addon 0.5.1, a corpse after a disenchant is a normal corpse
+- First 0.5.0 play (Ruins of Lordaeron): disenchants named their item and crafting was saved, but a corpse opened
+  within 5 seconds of a disenchant was saved as part of the disenchant (no corpse, its drop not counted for the mob),
+  and twice, because the game fired LOOT_READY twice and gathered corpses aren't marked as seen.
+- `addon/LootTrackerForever/` 0.5.1: disenchanting only tags loot from an item; one disenchant ends after its loot
+  window. Harness test: a corpse a second after a disenchant, LOOT_READY twice, is one normal corpse.
+- `server/build_site.py`: a 0.5.0 record of a mob tagged as a disenchant becomes a normal corpse, once per corpse, and
+  is dropped if the corpse was also looted normally. `server/test_flow.py` checks it.

@@ -206,6 +206,9 @@ def main():
             f'{{ id = "Player-1-Crafter:55", t = {NOW + 72}, zone = "Durotar", type = "loot", src = "other", how = "gather", items = {{ {{ id = 10938, count = 1, q = 2 }} }} }},',
             f'{{ id = "Player-1-Crafter:56", t = {NOW + 73}, zone = "Durotar", type = "made", item = 1251, count = 2, spell = 3275 }},',
             f'{{ id = "Player-1-Crafter:57", t = {NOW + 74}, zone = "Durotar", type = "made", item = 1251, count = 1 }},',
+            # 0.5.0 tagged a corpse opened just after a disenchant as part of it, twice: one normal corpse
+            f'{{ id = "Player-1-Crafter:58", t = {NOW + 75}, zone = "Durotar", type = "loot", src = "mob", npc = 3098, g = "D1", how = "gather", skill = 13262, items = {{ {{ id = 6379, count = 1, q = 2 }} }} }},',
+            f'{{ id = "Player-1-Crafter:59", t = {NOW + 75}, zone = "Durotar", type = "loot", src = "mob", npc = 3098, g = "D1", how = "gather", skill = 13262, items = {{ {{ id = 6379, count = 1, q = 2 }} }} }},',
         ])
         crafter = crafter.replace(b'["events"] = { ', b'["events"] = { ' + more.encode() + b' ')
         s, r = call("POST", "/upload/api/upload", crafter, r["code"])
@@ -232,7 +235,9 @@ def main():
         assert c["made"] == [{"id": 1251, "count": 3, "q": None}] and {i["id"] for i in c["gathered"]} == {765, 10940, 10938}, c
         assert 14148 in {i["id"] for i in c["loot"]} and 765 not in {i["id"] for i in c["loot"]}, c["loot"]
         assert d["totals"]["crafted"] == 3, d["totals"]
-        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting")
+        boar = next(m for m in d["mobs"] if m["id"] == 3098)
+        assert (boar["corpses"], boar["drops"][0]["id"], boar["drops"][0]["times"]) == (1, 6379, 1), boar
+        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair")
     finally:
         srv.terminate()
         srv.wait()

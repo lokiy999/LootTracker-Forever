@@ -93,3 +93,7 @@ Background (research 2026-11-04):
 - [x] 7.4 **(Lokiy)** First real uploads; check the site. First upload approved 2026-11-07 (Lokiy and Udolamin).
 - [ ] 7.5 **(Lokiy)** Play with 0.5.0 and upload: does a disenchant name the item (`from`), does crafting show up, does
       each gather name its skill? The item-click hook is the part that can't be tested outside the game.
+      2026-11-08, first look (Ruins of Lordaeron, not uploaded yet): `from` named the item on all 10 disenchants,
+      crafting recorded (Bolt of Woolen Cloth with its recipe). Found: a corpse opened right after a disenchant was
+      saved as part of it, twice; fixed in 0.5.1, and the site repairs 0.5.0's records. Left: a skinning / herb / mining
+      skill on a new upload.

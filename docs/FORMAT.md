@@ -11,7 +11,7 @@ LootTrackerForeverDB = {
   realm = "Realm", player = "Name", faction = "Alliance", class = "MAGE",
   guid = "Player-6949-00A39D60", -- the character that last saved: name + realm may not be unique on Forever
   chars = { ["Player-6949-00A39D60"] = { player = "Name", realm = "Realm", faction = "Alliance", class = "MAGE" } },
-  addon = "0.5.0", interface = 16001,
+  addon = "0.5.1", interface = 16001,
   seq = 12,                 -- last event number used
   session = 3,              -- logins so far
   settings = { ... },       -- window position; not read by the site
