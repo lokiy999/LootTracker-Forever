@@ -91,7 +91,7 @@
     return `<span style="color:${CLASS[p.class] || "inherit"}">${esc(name)}</span>${extra ? `<span class="who">${esc(extra)}</span>` : ""}`; };
   const source = (s) => s.kind === "zone" ? esc(s.name)
     : s.kind === "object" ? `<a href="${WOWHEAD}/object=${s.id}">object ${s.id}</a>`
-    : s.kind === "npc" ? npc(s) : s.kind === "item" ? item({ id: s.id })
+    : s.kind === "npc" ? npc(s) : s.kind === "item" ? item({ id: s.id }) : s.kind === "items" ? "items (open for the list)"
     : '<span class="small">not recorded (addon before 0.5.0)</span>';
   const srcKey = (s) => `${s.kind}:${s.id ?? s.name ?? ""}`;
   const listOf = (k) => (data && data[k]) || [];
@@ -121,7 +121,13 @@
       head: ["Skill", "From", ["Times", 1], ["Items", 1]],
       list: () => listOf("gathering"), id: (g) => `${g.skill}|${srcKey(g.source)}`,
       row: (g) => [esc(g.skill), source(g.source), g.times, g.items.length],
-      sub: (g) => g.items.map((d) => [item(d), `${d.times} / ${g.times}`, pct(d.times, g.times), `×${d.count}`]) },
+      sub: (g) => {
+        const rows = g.items.map((d) => [item(d), `${d.times} / ${g.times}`, pct(d.times, g.times), `×${d.count}`]);
+        if (!g.from) return rows;
+        return ["What it gave", ...rows, "Items disenchanted", ...g.from.map((f) => [
+          f.id ? item({ id: f.id }) : '<span class="small">not recorded (addon before 0.5.0)</span>', `${f.times}×`,
+          f.got.map((i) => `${item(i)} ×${i.count}`).join(", ")])];
+      } },
     crafting: { label: "Crafting", empty: "Nothing crafted yet: LootTracker Forever records crafting from version 0.5.0.", key: (c) => `${c.id} ${c.by.join(" ")}`, head: ["Item", "Recipe", ["Made", 1], ["Crafts", 1], "By"],
       list: () => listOf("crafting"), row: (c) => [item(c), c.spell ? spell(c.spell) : "–", c.count, c.times,
         esc(c.by.map((n) => n.split("-")[0]).join(", "))] },

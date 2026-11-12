@@ -102,8 +102,8 @@ def gather_kind(e):
         return skill, ("object", e["obj"]), {"kind": "object", "id": e["obj"]}
     if e.get("src") == "mob" and e.get("npc"):
         return skill, ("npc", e["npc"]), {"kind": "npc", "id": e["npc"], "name": e.get("name")}
-    if e.get("from"):
-        return skill, ("item", e["from"]), {"kind": "item", "id": e["from"]}
+    if skill == "Disenchanting":  # one row; which items went in is its own list
+        return skill, ("items",), {"kind": "items"}
     return skill, ("unknown",), {"kind": "unknown"}
 
 
@@ -206,6 +206,11 @@ def build(evs, info=None):
             g = gathers.setdefault((skill, key), {"skill": skill, "source": source, "times": 0, "copper": 0, "items": {}})
             g["times"] += 1
             g["copper"] += copper
+            if skill == "Disenchanting":  # per item disenchanted (0 = not recorded, before 0.5.0): times, what it gave
+                f = g.setdefault("from", {}).setdefault(e.get("from") or 0, {"id": e.get("from") or 0, "times": 0, "got": {}})
+                f["times"] += 1
+                for it in as_list(e.get("items")):
+                    f["got"][it["id"]] = f["got"].get(it["id"], 0) + it.get("count", 1)
             for it in as_list(e.get("items")):
                 p["gathered"][it["id"]] = p["gathered"].get(it["id"], 0) + it.get("count", 1)
                 items.setdefault(it["id"], {"id": it["id"], "q": it.get("q"), "times": 0, "count": 0, "mobs": {}})
@@ -292,6 +297,9 @@ def build(evs, info=None):
     gathering = []
     for g in gathers.values():
         g["items"] = sorted(g["items"].values(), key=lambda d: (-(d["q"] or 0), -d["times"]))
+        if "from" in g:
+            g["from"] = [{**f, "got": [{"id": i, "q": items[i]["q"], "count": n} for i, n in f["got"].items()]}
+                         for f in sorted(g["from"].values(), key=lambda f: (f["id"] == 0, -f["times"], f["id"]))]
         gathering.append(g)
     crafting = [dict(c, by=sorted(c["by"])) for c in crafts.values()]
     return {"updated": int(time.time()), "totals": totals, "uploaders": len(players),

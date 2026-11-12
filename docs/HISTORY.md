@@ -90,3 +90,8 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
 - Ruins of Lordaeron on 2026-11-08: four quick runs (reset, last bosses again) within an hour counted as one run.
   `server/build_site.py` `count_runs`: a character's run also ends when a boss it already killed in that run dies
   again. `server/test_flow.py` checks it (Taragaman twice 10 minutes apart: a new run).
+
+## 2026-11-12: Disenchanting is one row on the Gathering tab
+- It was one row per item disenchanted (57 rows, mostly "1 time"). `server/build_site.py`: one Disenchanting row with
+  everything it gave, plus `from`: each item disenchanted, how often and what it gave (id 0 = not recorded, before
+  0.5.0). `site/index.html` shows both as sections when the row is opened. `server/test_flow.py` checks it.

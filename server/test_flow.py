@@ -229,8 +229,10 @@ def main():
         g = {(x["skill"], json.dumps(x["source"], sort_keys=True)): x for x in d["gathering"]}
         herb = g[("Herbalism", '{"id": 1617, "kind": "object"}')]
         assert herb["times"] == 1 and herb["items"] == [{"id": 765, "q": 1, "times": 1, "count": 2}], herb
-        assert g[("Disenchanting", '{"id": 2582, "kind": "item"}')]["times"] == 1
-        assert g[("Disenchanting", '{"kind": "unknown"}')]["items"][0]["id"] == 10938
+        de = g[("Disenchanting", '{"kind": "items"}')]  # one row; the items that went in are its list
+        assert de["times"] == 2 and {i["id"] for i in de["items"]} == {10940, 10938}, de
+        assert de["from"] == [{"id": 2582, "times": 1, "got": [{"id": 10940, "q": 1, "count": 1}]},
+                              {"id": 0, "times": 1, "got": [{"id": 10938, "q": 2, "count": 1}]}], de["from"]
         assert d["crafting"] == [{"id": 1251, "times": 2, "count": 3, "spell": 3275, "by": ["Crafter-Testrealm"]}], d["crafting"]
         c = next(p for p in d["players"] if p["name"] == "Crafter-Testrealm")
         assert (c["class"], c["faction"], c["gathers"], c["crafts"]) == ("PRIEST", "Horde", 3, 2), c
