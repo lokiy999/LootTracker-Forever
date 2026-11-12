@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root { color-scheme: dark; --bg: #101318; --glow: #14243a; --panel: #171c23; --panel-2: #1e242d; --line: #2c3540;
-    --text: #e8ebef; --muted: #98a2ae; --faint: #6d7782; --accent: #6db7ff;
+    --text: #e8ebef; --muted: #98a2ae; --faint: #8792a0; --accent: #6db7ff;
     --q0: #9d9d9d; --q1: #ffffff; --q2: #1eff00; --q3: #3d8bff; --q4: #b048f8; --q5: #ff8000; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; color: var(--text);
@@ -39,6 +39,7 @@
   th { color: var(--muted); font-weight: 500; font-size: .8rem; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   tr.open { cursor: pointer; } tr.open:hover { background: var(--panel-2); }
+  tr.open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   tr.sub td { background: var(--panel-2); padding-left: 28px; }
   tr.sec td { color: var(--muted); font-size: .74rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
     padding-top: 12px; padding-bottom: 4px; }
@@ -151,7 +152,7 @@
     let h = `<table><tr>${t.head.map((c) => Array.isArray(c) ? `<th class="num">${c[0]}</th>` : `<th>${c}</th>`).join("")}</tr>`;
     for (const x of rows.slice(0, 500)) {
       const id = t.sub ? t.id(x) : null;
-      h += `<tr${t.sub ? ` class="open" data-id="${esc(id)}"` : ""}>${t.row(x).map((c, i) => `<td${num(c, i)}>${c}</td>`).join("")}</tr>`;
+      h += `<tr${t.sub ? ` class="open" tabindex="0" aria-expanded="${String(open) === String(id)}" data-id="${esc(id)}"` : ""}>${t.row(x).map((c, i) => `<td${num(c, i)}>${c}</td>`).join("")}</tr>`;
       if (t.sub && String(open) === String(id)) {
         for (const s of t.sub(x)) {
           if (typeof s === "string") { h += `<tr class="sub sec"><td colspan="${t.head.length}">${esc(s)}</td></tr>`; continue; }
@@ -159,10 +160,16 @@
         }
       }
     }
-    view.innerHTML = h + "</table>";
-    view.querySelectorAll("tr.open").forEach((r) => r.onclick = (e) => {
-      if (e.target.closest("a")) return;
-      open = String(open) === r.dataset.id ? null : r.dataset.id; render();
+    view.innerHTML = h + "</table>" + (rows.length > 500
+      ? `<p class="note" style="padding:0 12px">Showing the first 500 of ${rows.length.toLocaleString()}. Use the filter to narrow it down.</p>` : "");
+    // rows open with a click, or with Enter / Space when reached with Tab (focus goes back to the row after the redraw)
+    const toggle = (id, refocus) => {
+      open = String(open) === id ? null : id; render();
+      if (refocus) { const r = [...view.querySelectorAll("tr.open")].find((x) => x.dataset.id === id); if (r) r.focus(); }
+    };
+    view.querySelectorAll("tr.open").forEach((r) => {
+      r.onclick = (e) => { if (!e.target.closest("a")) toggle(r.dataset.id, false); };
+      r.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === r) { e.preventDefault(); toggle(r.dataset.id, true); } };
     });
     if (window.$WowheadPower) window.$WowheadPower.refreshLinks();
   }

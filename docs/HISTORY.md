@@ -105,3 +105,14 @@ says another site started them (`own_page()`: `Origin` must be forever.lokiy.dev
 same-origin or absent; `LOOT_UPLOAD_ORIGINS` overrides it). The public upload isn't affected. Tested on a test
 port (own page passes, other site 403), service restarted. The other hole fixed on V+ (unchecked text in uploads)
 doesn't exist here: `validate.py` already checks IDs and quality, and the page escapes names.
+
+## 2026-11-12: Site: rows by keyboard, the 500-row limit says so, readable grey text
+
+From the website review of lokiy.dev. `site/index.html`: rows that open can be reached with Tab and opened with
+Enter or Space (`tabindex`, `aria-expanded`; focus returns to the row after the redraw); a list longer than 500
+rows says "Showing the first 500 of N" instead of stopping silently; `--faint` is `#8792a0` (5.6:1, was 4.1:1).
+`site/upload/index.html`: `--faint` `#948b83`, and the file field is hidden visually instead of `display: none`,
+so Tab reaches it. Copied to `/var/www/forever` (backups `.bak-2026-11-12b`). Checked in the browser: Enter opens
+a row and keeps the focus, a click closes it. Not changed: item names still come from Wowhead's script (by design,
+FORMAT.md), so the Items tab filters by ID only.
+
