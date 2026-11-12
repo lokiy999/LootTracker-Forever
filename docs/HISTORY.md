@@ -116,3 +116,9 @@ so Tab reaches it. Copied to `/var/www/forever` (backups `.bak-2026-11-12b`). Ch
 a row and keeps the focus, a click closes it. Not changed: item names still come from Wowhead's script (by design,
 FORMAT.md), so the Items tab filters by ID only.
 
+## 2026-11-12: Fonts from our own server
+
+Lokiy's answer to the website review: `site/index.html` and `site/upload/index.html` load Cinzel and Inter from
+`site/fonts/` (`/fonts/fonts.css`, copied to `/var/www/forever/fonts/`) instead of Google Fonts, so no visitor's IP
+goes to Google. Backups `.bak-2026-11-12c`.
+
