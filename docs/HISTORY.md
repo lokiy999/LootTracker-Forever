@@ -95,3 +95,13 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
 - It was one row per item disenchanted (57 rows, mostly "1 time"). `server/build_site.py`: one Disenchanting row with
   everything it gave, plus `from`: each item disenchanted, how often and what it gave (id 0 = not recorded, before
   0.5.0). `site/index.html` shows both as sections when the row is opened. `server/test_flow.py` checks it.
+
+## 2026-11-12: Admin actions only from the admin pages
+
+Found in the website review of lokiy.dev (LootTracker HISTORY 31). The browser adds the /admin password to every
+request for forever.lokiy.dev, also to a hidden form on another website, so another site could start an admin
+action (for example: switch a code to auto-approve). `server/server.py` now refuses admin POSTs when the browser
+says another site started them (`own_page()`: `Origin` must be forever.lokiy.dev or absent, `Sec-Fetch-Site`
+same-origin or absent; `LOOT_UPLOAD_ORIGINS` overrides it). The public upload isn't affected. Tested on a test
+port (own page passes, other site 403), service restarted. The other hole fixed on V+ (unchecked text in uploads)
+doesn't exist here: `validate.py` already checks IDs and quality, and the page escapes names.

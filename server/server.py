@@ -13,6 +13,8 @@ Only listens on localhost; Caddy forwards to it:
   POST /admin/api/revoke  {code}       |
   POST /admin/api/auto    {code, on}  /   uploads with this code are approved without review (Lokiy's own)
 
+Admin POSTs are refused when the browser says another website started them (Origin / Sec-Fetch-Site).
+
 Safety, as on V+: a code is needed to upload, size cap, rate limits, and every file is checked by validate.py in its
 own process (Lua read as data, never run). No IP addresses are kept. Nothing a player sent is ever deleted.
 
@@ -41,6 +43,9 @@ VALIDATE_TIMEOUT = 90              # seconds
 MAX_QUEUE = 100                    # files waiting for review; more uploads are refused until Lokiy catches up
 UPLOADS_PER_HOUR = int(os.environ.get("LOOT_UPLOAD_PER_HOUR", "6"))  # per code and per IP
 BAD_CODES_PER_HOUR = 10            # wrong codes per IP before that IP is refused for the hour
+# Admin actions are only taken from our own pages (HISTORY): the browser adds the /admin password to any request for
+# this site, also one another website makes it send, but it always says which site the request came from.
+ORIGINS = set(os.environ.get("LOOT_UPLOAD_ORIGINS", "https://forever.lokiy.dev").split())
 PLAYER_NAME = re.compile(r"^[A-Za-z0-9 _'-]{2,24}$")
 
 lock = threading.Lock()
@@ -215,9 +220,16 @@ class Handler(BaseHTTPRequestHandler):
                                    "codes": [{"code": c, **v} for c, v in codes.items()]})
         self.send(404, {"error": "Not found."})
 
+    def own_page(self):
+        """False when a browser says the request was started by another website."""
+        origin, site = self.headers.get("Origin"), self.headers.get("Sec-Fetch-Site")
+        return (origin is None or origin in ORIGINS) and site in (None, "same-origin")
+
     def do_POST(self):
         if self.path == "/upload/api/upload":
             return self.upload()
+        if not self.own_page():
+            return self.send(403, {"error": "Admin actions only work from the admin pages on this site."})
         if self.path.startswith("/admin/api/"):
             return self.admin(self.path[len("/admin/api/"):])
         self.send(404, {"error": "Not found."})
