@@ -108,19 +108,25 @@ def gather_kind(e):
 
 
 def count_runs(evs):
-    """{instance: runs}. A character's run ends after an hour away; group members' runs that overlap are one run."""
+    """{instance: runs}. A character's run ends after an hour away, or when a boss it already killed dies again (a
+    reset and a quick run); group members' runs that overlap are one run."""
     spans = {}
     for e in evs:
         if not e.get("inst"):
             continue
         s = spans.setdefault((e["inst"], e["uploader"]), [])
-        if s and e["t"] - s[-1][1] <= RUN_GAP:
+        boss = e.get("encounter") if e["type"] == "boss" and e.get("ok") == 1 else None
+        if s and e["t"] - s[-1][1] <= RUN_GAP and boss not in s[-1][2]:
             s[-1][1] = e["t"]
         else:
-            s.append([e["t"], e["t"]])
+            if s and boss in s[-1][2]:  # the boss's own kill line comes the same second: it belongs to the new run
+                s[-1][1] = min(s[-1][1], e["t"] - 1)
+            s.append([e["t"], e["t"], set()])
+        if boss is not None:
+            s[-1][2].add(boss)
     by_inst = {}
     for (inst, _), s in spans.items():
-        by_inst.setdefault(inst, []).extend(s)
+        by_inst.setdefault(inst, []).extend((a, b) for a, b, _ in s)
     out = {}
     for inst, s in by_inst.items():
         s.sort()

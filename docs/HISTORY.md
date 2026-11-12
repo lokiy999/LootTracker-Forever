@@ -85,3 +85,8 @@ Newest at the bottom. Every change gets an entry: what changed, why, and where.
   window. Harness test: a corpse a second after a disenchant, LOOT_READY twice, is one normal corpse.
 - `server/build_site.py`: a 0.5.0 record of a mob tagged as a disenchant becomes a normal corpse, once per corpse, and
   is dropped if the corpse was also looted normally. `server/test_flow.py` checks it.
+
+## 2026-11-12: A boss killed again starts a new run
+- Ruins of Lordaeron on 2026-11-08: four quick runs (reset, last bosses again) within an hour counted as one run.
+  `server/build_site.py` `count_runs`: a character's run also ends when a boss it already killed in that run dies
+  again. `server/test_flow.py` checks it (Taragaman twice 10 minutes apart: a new run).
