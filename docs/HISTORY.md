@@ -142,3 +142,13 @@ with whatever spell was cast last. `server/build_site.py` skips every event with
 (30 Alterac Valley, 489 Warsong Gulch, 529 Arathi Basin); the uploads keep them. `server/test_flow.py` checks it.
 Site rebuilt: 11 instances, the marks gone from Crafting, Lokiy's kill count without the battleground kills.
 
+## 2026-11-22: Mobs tab shows every kill
+
+Lokiy: "the mob kills seem low". The Kills column was the drop-rate basis (looted corpses + solo kills that left
+nothing), so group kills nobody in the uploads looted were missing: 1,728 of about 3,300 open-world kills in the 11-22
+upload (Cave Yeti 41 of 68), and mobs that never drop anything (Silithid Swarm) weren't listed. Lokiy chose to show
+every kill and keep the rates as they were. `server/build_site.py`: each mob gets `seen` (every kill or looted corpse,
+each `npc` + `g` once; hidden dungeon kills have no mob) and `totals.seen`; `kills` stays the basis. `site/index.html`:
+Kills = `seen`, a new Looted column = the basis, the big Kills number = `totals.seen`, and the note says rates are per
+looted kill. `server/test_flow.py` checks it. Site rebuilt: 4,177 kills (was 2,449), Cave Yeti 69 / 41 looted.
+

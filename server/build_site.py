@@ -273,6 +273,18 @@ def build(evs, info=None):
                 d["times"] += 1
                 d["count"] += n
                 i["mobs"][e["npc"]] = i["mobs"].get(e["npc"], 0) + 1
+    # Every kill seen, each corpse once (Lokiy, 2026-11-22): also group kills nobody in the uploads looted, and mobs that
+    # never drop anything. Rates stay per "kills" (looted corpses + solo kills that left nothing); hidden dungeon kills
+    # have no mob, so they stay out of this too.
+    seen = {}
+    for e in evs:
+        if e.get("npc") and ((e["type"] == "kill" and not e.get("hidden"))
+                             or (e["type"] == "loot" and e.get("src") == "mob" and not e.get("how"))):
+            seen.setdefault(e["npc"], set()).add(e.get("g") or id(e))
+            mob(e["npc"], e.get("name"))
+    for m in mobs.values():
+        m["seen"] = max(len(seen.get(m["id"], ())), m["kills"])
+    totals["seen"] = sum(m["seen"] for m in mobs.values())
     for m in mobs.values():
         m["drops"] = sorted(m["drops"].values(), key=lambda d: (-(d["q"] or 0), -d["times"]))
     for i in items.values():
@@ -309,7 +321,7 @@ def build(evs, info=None):
         gathering.append(g)
     crafting = [dict(c, by=sorted(c["by"])) for c in crafts.values()]
     return {"updated": int(time.time()), "totals": totals, "uploaders": len(players),
-            "mobs": sorted(mobs.values(), key=lambda m: -m["kills"]),
+            "mobs": sorted(mobs.values(), key=lambda m: (-m["seen"], -m["kills"])),
             "items": sorted(items.values(), key=lambda i: (-(i["q"] or 0), -i["times"])),
             # A zone where only gathering happened has nothing for this list: it's under Gathering
             "zones": sorted((z for z in zones.values() if not z["instance"] and (z["corpses"] or z["items"])),

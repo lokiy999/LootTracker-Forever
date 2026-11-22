@@ -61,9 +61,9 @@
   <nav class="tabs" role="tablist" id="tabs"></nav>
   <input id="q" type="search" placeholder="Filter by name or ID" aria-label="Filter">
   <div class="card" id="view"></div>
-  <p class="note">Rates are per kill, from players' uploads. A kill counts when its corpse was looted, or when a player on
-    their own killed a mob of theirs and it left nothing. Kills in a group count once looted, because the rest may have
-    gone to someone else, so rates can read a little high. In dungeons the game hides which mob died, so there rates are per
+  <p class="note">Kills are every kill in players' uploads, each corpse once. Rates are per looted kill: a corpse that was
+    looted, or a mob a player killed on their own that left nothing (the "Looted" column). A group kill nobody in the
+    uploads looted isn't in the rates, because its loot may have gone to someone else, so rates can read a little high. In dungeons the game hides which mob died, so there rates are per
     looted corpse. Gathering, disenchanting and crafting have their own tabs and never count as drops. Low counts mean
     little: check the numbers next to each rate.</p>
   <footer>Item and NPC details from <a href="https://www.wowhead.com/forever">Wowhead</a>.
@@ -98,8 +98,8 @@
 
   // A sub list is rows of cells; a plain string is a section heading inside it
   const TABS = {
-    mobs: { label: "Mobs", key: (m) => `${m.name} ${m.id}`, head: ["Mob", ["Kills", 1], ["Gold each", 1], ["Items seen", 1]],
-      list: () => data.mobs, id: (m) => m.id, row: (m) => [npc(m), m.kills, gold(m.copper / m.kills | 0), m.drops.length],
+    mobs: { label: "Mobs", key: (m) => `${m.name} ${m.id}`, head: ["Mob", ["Kills", 1], ["Looted", 1], ["Gold each", 1], ["Items seen", 1]],
+      list: () => data.mobs, id: (m) => m.id, row: (m) => [npc(m), m.seen ?? m.kills, m.kills, gold(m.copper / m.kills | 0), m.drops.length],
       sub: (m) => m.drops.map((d) => [item(d), `${d.times} / ${m.kills}`, pct(d.times, m.kills), d.count]) },
     items: { label: "Items", key: (i) => `${i.id}`, head: ["Item", ["Times dropped", 1], ["Total", 1]],
       list: () => data.items, id: (i) => i.id, row: (i) => [item(i), i.times, i.count],
@@ -183,7 +183,7 @@
   fetch("loot.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
     data = d;
     document.getElementById("updated").textContent = `${d.uploaders} player${d.uploaders === 1 ? "" : "s"}, updated ${new Date(d.updated * 1000).toLocaleString()}`;
-    document.getElementById("big").innerHTML = [[d.totals.kills.toLocaleString(), "Kills"], [d.totals.items.toLocaleString(), "Items seen"],
+    document.getElementById("big").innerHTML = [[(d.totals.seen ?? d.totals.kills).toLocaleString(), "Kills"], [d.totals.items.toLocaleString(), "Items seen"],
       [gold(d.totals.copper), "Gold looted"], [d.totals.bossKills, "Boss kills"]].map(([n, l]) => `<div class="bigstat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
     render();
   }).catch(() => { document.getElementById("updated").textContent = "No data yet."; data = { mobs: [], items: [], zones: [], instances: [], gathering: [], crafting: [], players: [] }; render(); });

@@ -234,6 +234,8 @@ def main():
             # 0.5.0 tagged a corpse opened just after a disenchant as part of it, twice: one normal corpse
             f'{{ id = "Player-1-Crafter:58", t = {NOW + 75}, zone = "Durotar", type = "loot", src = "mob", npc = 3098, g = "D1", how = "gather", skill = 13262, items = {{ {{ id = 6379, count = 1, q = 2 }} }} }},',
             f'{{ id = "Player-1-Crafter:59", t = {NOW + 75}, zone = "Durotar", type = "loot", src = "mob", npc = 3098, g = "D1", how = "gather", skill = 13262, items = {{ {{ id = 6379, count = 1, q = 2 }} }} }},',
+            # a group kill nobody looted: a kill on the Mobs tab, not in the rates
+            f'{{ id = "Player-1-Crafter:64", t = {NOW + 83}, zone = "Durotar", type = "kill", npc = 4196, name = "Silithid Swarm", g = "S1", by = "party", grp = 2, tap = 1, xp = 1 }},',
             # a battleground: player kills, a little copper, a Mark of Honor saved as crafting; none of it on the site
             f'{{ id = "Player-1-Crafter:61", t = {NOW + 80}, zone = "Warsong Gulch", inst = "Warsong Gulch", instId = 489, diff = "", type = "kill", hidden = 1, grp = 9 }},',
             f'{{ id = "Player-1-Crafter:62", t = {NOW + 81}, zone = "Warsong Gulch", inst = "Warsong Gulch", instId = 489, diff = "", type = "loot", src = "other", g = "BG1", copper = 37, items = {{ }} }},',
@@ -269,7 +271,11 @@ def main():
         assert d["totals"]["crafted"] == 3, d["totals"]
         boar = next(m for m in d["mobs"] if m["id"] == 3098)
         assert (boar["corpses"], boar["drops"][0]["id"], boar["drops"][0]["times"]) == (1, 6379, 1), boar
-        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs, empty realm, battlegrounds")
+        swarm = next(m for m in d["mobs"] if m["id"] == 4196)
+        assert (swarm["seen"], swarm["kills"], swarm["name"]) == (1, 0, "Silithid Swarm"), swarm
+        hog = next(m for m in d["mobs"] if m["id"] == 448)
+        assert hog["seen"] > hog["kills"] and d["totals"]["seen"] == sum(m["seen"] for m in d["mobs"]), (hog, d["totals"])
+        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs, empty realm, battlegrounds, kills seen")
     finally:
         srv.terminate()
         srv.wait()
