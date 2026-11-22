@@ -103,7 +103,7 @@
     get() { try { return localStorage.getItem("lootUploadCode") || ""; } catch (e) { return ""; } },
     set(v) { try { localStorage.setItem("lootUploadCode", v); } catch (e) {} },
   };
-  // A link like /loot/upload#code=... fills the code in (the part after # never reaches the server).
+  // A link like /upload#code=... fills the code in (the part after # never reaches the server).
   const fromLink = new URLSearchParams(location.hash.slice(1)).get("code");
   $("code").value = fromLink || store.get();
   if (fromLink) history.replaceState(null, "", location.pathname);
@@ -157,8 +157,8 @@
         store.set(code);
         show("ok", `${j.message} (uploaded as ${j.player})`, j.summary);
         // Done: a clear way back, and the upload button stays off until another file is chosen.
-        const home = Object.assign(document.createElement("a"), { className: "home", href: "/loot/", textContent: "← Back to Lokiy's Loot" });
-        const again = Object.assign(document.createElement("a"), { className: "again", href: "/loot/upload/", textContent: "Upload another file" });
+        const home = Object.assign(document.createElement("a"), { className: "home", href: "/", textContent: "← Back to the loot" });
+        const again = Object.assign(document.createElement("a"), { className: "again", href: "/upload/", textContent: "Upload another file" });
         const done = Object.assign(document.createElement("div"), { className: "done" });
         done.append(home, again);
         $("msg").append(done);

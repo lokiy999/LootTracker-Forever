@@ -129,7 +129,7 @@
     playerList($("rejected"), d.rejected, "rejectedAt", "rejected");
     const c = $("codes"); c.innerHTML = "";
     for (const k of d.codes) {
-      const link = `${location.origin}/loot/upload#code=${encodeURIComponent(k.code)}`;
+      const link = `${location.origin}/upload/#code=${encodeURIComponent(k.code)}`;
       const copy = el("button", { textContent: "Copy link" });
       copy.onclick = async () => { try { await navigator.clipboard.writeText(link); note(`Link for ${k.name} copied.`); } catch (e) { prompt("Link:", link); } };
       // Auto-approve: uploads with this code skip the review (for Lokiy's own uploads)
