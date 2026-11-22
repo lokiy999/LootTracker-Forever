@@ -33,6 +33,10 @@ SKILLS = {8613: "Skinning", 2575: "Mining", 2366: "Herbalism", 921: "Pick Pocket
 FISHING_BOBBER = 35591
 DISENCHANT = 13262
 RUN_GAP = 3600  # an hour without anything in the instance starts a new run
+# Battlegrounds by instance ID: Alterac Valley, Warsong Gulch, Arathi Basin. Left out of the site (Lokiy, 2026-11-22:
+# a tab of their own only if they have loot). Their kills are players, their only loot a little copper, and the Marks
+# of Honor arrive as "You create:", so the addon saves them as crafting.
+BATTLEGROUNDS = {30, 489, 529}
 
 
 def char_info(db, guid):
@@ -52,6 +56,8 @@ def events(info=None):
         with gzip.open(path, "rt", encoding="utf-8") as f:
             db = Parser(f.read()).parse_file()["LootTrackerForeverDB"]
         for e in as_list(db.get("events")):
+            if e.get("instId") in BATTLEGROUNDS:
+                continue
             guid = e["id"].rsplit(":", 1)[0]
             e["uploader"] = e.get("char") or character(db, guid)
             e["wowhead"] = db.get("via") == "wowhead"

@@ -234,6 +234,10 @@ def main():
             # 0.5.0 tagged a corpse opened just after a disenchant as part of it, twice: one normal corpse
             f'{{ id = "Player-1-Crafter:58", t = {NOW + 75}, zone = "Durotar", type = "loot", src = "mob", npc = 3098, g = "D1", how = "gather", skill = 13262, items = {{ {{ id = 6379, count = 1, q = 2 }} }} }},',
             f'{{ id = "Player-1-Crafter:59", t = {NOW + 75}, zone = "Durotar", type = "loot", src = "mob", npc = 3098, g = "D1", how = "gather", skill = 13262, items = {{ {{ id = 6379, count = 1, q = 2 }} }} }},',
+            # a battleground: player kills, a little copper, a Mark of Honor saved as crafting; none of it on the site
+            f'{{ id = "Player-1-Crafter:61", t = {NOW + 80}, zone = "Warsong Gulch", inst = "Warsong Gulch", instId = 489, diff = "", type = "kill", hidden = 1, grp = 9 }},',
+            f'{{ id = "Player-1-Crafter:62", t = {NOW + 81}, zone = "Warsong Gulch", inst = "Warsong Gulch", instId = 489, diff = "", type = "loot", src = "other", g = "BG1", copper = 37, items = {{ }} }},',
+            f'{{ id = "Player-1-Crafter:63", t = {NOW + 82}, zone = "Warsong Gulch", inst = "Warsong Gulch", instId = 489, diff = "", type = "made", item = 20558, count = 3, spell = 984 }},',
         ])
         crafter = crafter.replace(b'["events"] = { ', b'["events"] = { ' + more.encode() + b' ')
         s, r = call("POST", "/upload/api/upload", crafter, r["code"])
@@ -249,6 +253,7 @@ def main():
         assert rf["mobs"] == [{"id": 11520, "name": None, "corpses": 2}] and rf["bosses"][0]["name"] == "Taragaman", rf
         dm = next(i for i in d["instances"] if i["name"] == "Deadmines")
         assert dm["bossKills"] == 5 and dm["corpses"] == 0, dm
+        assert "Warsong Gulch" not in {i["name"] for i in d["instances"]} | {z["name"] for z in d["zones"]}, d["instances"]
         g = {(x["skill"], json.dumps(x["source"], sort_keys=True)): x for x in d["gathering"]}
         herb = g[("Herbalism", '{"id": 1617, "kind": "object"}')]
         assert herb["times"] == 1 and herb["items"] == [{"id": 765, "q": 1, "times": 1, "count": 2}], herb
@@ -264,7 +269,7 @@ def main():
         assert d["totals"]["crafted"] == 3, d["totals"]
         boar = next(m for m in d["mobs"] if m["id"] == 3098)
         assert (boar["corpses"], boar["drops"][0]["id"], boar["drops"][0]["times"]) == (1, 6379, 1), boar
-        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs, empty realm")
+        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs, empty realm, battlegrounds")
     finally:
         srv.terminate()
         srv.wait()

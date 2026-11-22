@@ -44,6 +44,9 @@ in git: they hold other players' names).
   became `Name^` at the same time). The server fills an empty realm from the realm number in the GUID
   (`Player-6949-…`), see `REALMS` in `server/convert_wowhead.py`.
 - **`LOOT_READY` fires twice** per window (363 for 179 corpses and objects).
+- **Battlegrounds** (2026-11-22 upload): kills are hidden like in dungeons, loot is only a little copper
+  (`src = "other"`), and Marks of Honor come as `You create:` lines, so the addon saves them as `made`. The site leaves
+  battlegrounds out (`BATTLEGROUNDS` in `server/build_site.py`).
 
 ## Decisions
 

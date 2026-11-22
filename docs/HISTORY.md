@@ -133,3 +133,12 @@ which `build_site.py` shares) and by the Wowhead converter, where the ID comes f
 filled before event IDs are made (a Wowhead event sent again still counts once). `server/test_flow.py` checks it.
 Both real files now pass: 2,439 corpses for Lokiy and Udolamin, 62 from Wowhead. The addon itself is unchanged.
 
+## 2026-11-22: Battlegrounds left out of the site
+
+Lokiy's 11-22 upload put Arathi Basin and Warsong Gulch on the Instances tab. Lokiy: a Battlegrounds tab only if
+they have loot. They have none of ours: 459 kills (players, hidden), 11 small copper loots, 3 lines of someone else
+disenchanting, and the Marks of Honor (20558, 20559), which arrive as "You create:" and so were on the Crafting tab
+with whatever spell was cast last. `server/build_site.py` skips every event with `instId` in `BATTLEGROUNDS`
+(30 Alterac Valley, 489 Warsong Gulch, 529 Arathi Basin); the uploads keep them. `server/test_flow.py` checks it.
+Site rebuilt: 11 instances, the marks gone from Crafting, Lokiy's kill count without the battleground kills.
+
