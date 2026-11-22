@@ -81,8 +81,31 @@ def call(method, url, body=None, code=None):
         return e.code, json.load(e)
 
 
+def empty_realm(data):
+    """Since 2026-11-22 the game gives an empty realm: it comes from the realm number in the character ID."""
+    sys.path.insert(0, HERE)
+    from convert_wowhead import convert, realm_of
+    from luadata import Parser
+    assert realm_of("", "Player-6949-00A39D60") == "CAMWOW EU5 Realm 7 PvE" and realm_of("", "Player-12-AB") == "Realm 12"
+    assert realm_of("Own", "Player-6949-1") == "Own" and realm_of("", None) == ""
+    wl = wowhead().decode().replace("Tester^Other Realm", "Tester^")
+    db = convert(Parser(wl + '\nwlProfileData = { ["Tester^"] = { ["guid"] = "Player-6949-00F53B05", }, }\n').parse_file())
+    assert db["realm"] == "CAMWOW EU5 Realm 7 PvE" and db["events"][0]["char"] == "Tester-CAMWOW EU5 Realm 7 PvE", db
+    # an addon file: the file's own character and one in chars, both without a realm
+    raw = save("Blank").replace(b'["realm"] = "Testrealm"', b'["realm"] = ""').replace(
+        b'["format"] = 1,', b'["format"] = 1, ["chars"] = { ["Player-1-Alt"] = { player = "Alt", realm = "" } },').replace(
+        b'id = "Player-1-Blank:2"', b'id = "Player-1-Alt:2"')
+    path = os.path.join(data, "blank.lua")
+    with open(path, "wb") as f:
+        f.write(raw)
+    r = json.loads(subprocess.run([sys.executable, os.path.join(HERE, "validate.py"), path], capture_output=True, check=True).stdout)
+    assert r["ok"] and r["summary"]["characters"] == ["Alt-Realm 1", "Blank-Realm 1"], r
+    os.remove(path)
+
+
 def main():
     data = tempfile.mkdtemp(prefix="forever-test-")
+    empty_realm(data)
     env = dict(os.environ, LOOT_UPLOAD_DATA=data, LOOT_UPLOAD_PORT=str(PORT), LOOT_UPLOAD_PER_HOUR="100")
     srv = subprocess.Popen([sys.executable, os.path.join(HERE, "server.py")], env=env, stderr=subprocess.DEVNULL)
     try:
@@ -241,7 +264,7 @@ def main():
         assert d["totals"]["crafted"] == 3, d["totals"]
         boar = next(m for m in d["mobs"] if m["id"] == 3098)
         assert (boar["corpses"], boar["drops"][0]["id"], boar["drops"][0]["times"]) == (1, 6379, 1), boar
-        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs")
+        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs, empty realm")
     finally:
         srv.terminate()
         srv.wait()

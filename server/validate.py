@@ -18,7 +18,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from convert_wowhead import NotForever, convert, is_wowhead, to_lua  # noqa: E402
+from convert_wowhead import NotForever, convert, is_wowhead, realm_of, to_lua  # noqa: E402
 from luadata import Parser, as_list  # noqa: E402
 
 MEMORY_LIMIT = 1024 * 1024 * 1024  # bytes of address space for this process
@@ -75,11 +75,11 @@ def walk(v, depth=0, count=None):
 def character(db, guid):
     """"Name-Realm" of a character in the file. One the file has no name for keeps its ID: see docs/FORMAT.md."""
     if guid == db.get("guid"):
-        return f"{db['player']}-{db['realm']}"
+        return f"{db['player']}-{realm_of(db['realm'], guid)}"
     c = db.get("chars")
     c = c.get(guid) if isinstance(c, dict) else None
     if isinstance(c, dict) and isinstance(c.get("player"), str) and isinstance(c.get("realm"), str):
-        return f"{c['player']}-{c['realm']}"
+        return f"{c['player']}-{realm_of(c['realm'], guid)}"
     return guid
 
 
@@ -114,6 +114,8 @@ def summarize(text, converted_out=None):
     need(not unknown, f"Unknown data in the file: {', '.join(unknown[:5])}.")
     need(db.get("game") == "forever", "This file isn't from WoW Forever.")
     need(db.get("format") == 1, "The addon version in this file isn't supported (update LootTracker Forever).")
+    if isinstance(db.get("realm"), str):
+        db["realm"] = realm_of(db["realm"], db.get("guid"))  # empty since 2026-11-22: from the character ID
     for k in ("realm", "player"):
         need(isinstance(db.get(k), str) and db[k], f"The file has no {k}.")
 

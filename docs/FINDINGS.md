@@ -40,6 +40,9 @@ in git: they hold other players' names).
   [Claw]x2`. Other players' lines end in a full stop. `You receive item:` (quests, vendors) and `You create:` aren't loot.
 - **Names.** Characters have two-part names in chat and the combat log ("Lokiy Volaurin"). `UnitName` and `GetRealmName`
   give "Lokiy" and "CAMWOW EU5 Realm 7 PvE", so name + realm may not be unique: the addon identifies a character by GUID.
+  **Since about 2026-11-22 `GetRealmName()` returns ""** (an upload from 11-17 still had the name; Wowhead Looter's keys
+  became `Name^` at the same time). The server fills an empty realm from the realm number in the GUID
+  (`Player-6949-…`), see `REALMS` in `server/convert_wowhead.py`.
 - **`LOOT_READY` fires twice** per window (363 for 179 corpses and objects).
 
 ## Decisions

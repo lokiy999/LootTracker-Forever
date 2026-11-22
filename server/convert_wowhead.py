@@ -37,6 +37,20 @@ class NotForever(Exception):
     pass
 
 
+# Realm names by the realm number in a character ID ("Player-6949-00A39D60"). Since 2026-11-22 the game gives addons
+# an empty realm name (GetRealmName() returns ""; Wowhead Looter's keys became "Name^"), so an empty realm is filled
+# from here, and characters keep the "Name-Realm" of their earlier uploads. A number not listed becomes "Realm <n>".
+REALMS = {"6949": "CAMWOW EU5 Realm 7 PvE"}
+
+
+def realm_of(realm, guid):
+    """The realm as given, or else the one the character ID points to, or else ""."""
+    if isinstance(realm, str) and realm:
+        return realm
+    m = re.match(r"Player-(\d+)-", guid) if isinstance(guid, str) else None
+    return REALMS.get(m.group(1), f"Realm {m.group(1)}") if m else ""
+
+
 def is_wowhead(top):
     return "wlEvent" in top
 
@@ -135,10 +149,13 @@ def convert(top):
     events, chars = [], []
     skipped = {"noSource": 0, "notLoot": 0, "otherAction": 0, "noDrops": 0}
     wl_events = top.get("wlEvent")
+    profiles = top.get("wlProfileData") if isinstance(top.get("wlProfileData"), dict) else {}
     for key, sessions in wl_events.items() if isinstance(wl_events, dict) else []:
         if not isinstance(key, str) or "^" not in key or len(chars) >= MAX_CHARACTERS:
             continue
         player, realm = key.split("^", 1)
+        profile = profiles.get(key) if isinstance(profiles.get(key), dict) else {}
+        realm = realm_of(realm, profile.get("guid"))
         char = f"{player[:MAX_NAME]}-{realm[:MAX_NAME]}"
         chars.append((player[:MAX_NAME], realm[:MAX_NAME]))
         for n, session in enumerate(as_list(sessions)):

@@ -122,3 +122,14 @@ Lokiy's answer to the website review: `site/index.html` and `site/upload/index.h
 `site/fonts/` (`/fonts/fonts.css`, copied to `/var/www/forever/fonts/`) instead of Google Fonts, so no visitor's IP
 goes to Google. Backups `.bak-2026-11-12c`.
 
+## 2026-11-22: An empty realm comes from the character ID
+
+Lokiy's new save file and Wowhead Looter file were both refused with "The file has no realm.": the game now gives
+addons an empty realm name (`GetRealmName()` returns "", in both addons; the 11-17 upload still had it).
+`server/convert_wowhead.py` `realm_of()`: an empty realm is taken from the realm number in the character ID
+(`REALMS`: 6949 = "CAMWOW EU5 Realm 7 PvE", any other number "Realm <n>"), so characters keep the "Name-Realm" of
+their earlier uploads and the site doesn't split them. Used by `validate.py` (the file's realm and `character()`,
+which `build_site.py` shares) and by the Wowhead converter, where the ID comes from `wlProfileData` and the realm is
+filled before event IDs are made (a Wowhead event sent again still counts once). `server/test_flow.py` checks it.
+Both real files now pass: 2,439 corpses for Lokiy and Udolamin, 62 from Wowhead. The addon itself is unchanged.
+
