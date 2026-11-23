@@ -10,3 +10,8 @@
   `/upload/` and `/`; the admin page's code links are `/upload/#code=…`. Deployed; old pages in
   `~/forever-backups/pages-2026-11-22/`.
 - Line endings of six files back to LF: copies from the PC (git `core.autocrlf`) had made them CRLF on 11-22.
+
+## 2026-11-23
+
+- Admin page links to the open items page (`/admin/todo/`, made by the Forever hub's `tools/todo.py`). Deployed; old
+  page in `~/forever-backups/pages-2026-11-23/admin/`.
