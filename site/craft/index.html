@@ -93,6 +93,7 @@
   </header>
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-tab="calc">Calculator</button>
+    <button class="tab" role="tab" data-tab="recipes">All recipes</button>
     <button class="tab" role="tab" data-tab="prices">Prices</button>
     <button class="tab" role="tab" data-tab="batches">Batches</button>
     <button class="tab" role="tab" data-tab="tsm">TSM</button>
@@ -217,7 +218,8 @@ tabs.addEventListener("click", (e) => {
   const b = e.target.closest(".tab"); if (!b || !RECIPES.length) return;
   tab = b.dataset.tab; render();
   // The TSM tab always loads; Batches only once this browser has signed in before (no password box for visitors)
-  if ((tab === "tsm" || (tab === "batches" && S.tsmSignedIn)) && !T.data && !T.loading) loadTSM();
+  if ((tab === "tsm" || ((tab === "batches" || tab === "recipes") && S.tsmSignedIn)) && !T.data && !T.loading) loadTSM();
+  if (tab === "recipes" && !C.data && !C.loading) loadCatalog();
 });
 
 function render() {
@@ -226,9 +228,10 @@ function render() {
   const el = document.getElementById("stale");
   el.hidden = !stale.length || tab === "tsm";
   el.textContent = stale.length ? `${stale.length} AH price${stale.length > 1 ? "s are" : " is"} more than 12 hours old. Update them on the Prices tab before trusting the profit.` : "";
-  view.innerHTML = tab === "calc" ? calcView() : tab === "prices" ? pricesView() : tab === "batches" ? batchesView() : tsmView();
+  view.innerHTML = tab === "calc" ? calcView() : tab === "prices" ? pricesView() : tab === "batches" ? batchesView()
+    : tab === "recipes" ? catalogView() : tsmView();
   if (tab === "batches") updateBatchCost();
-  if (tab === "tsm" || tab === "batches") refreshTooltips();
+  if (tab === "tsm" || tab === "batches" || tab === "recipes") refreshTooltips();
 }
 
 function missingNote(missing) {
@@ -447,7 +450,7 @@ const when = (t) => new Date(t * 1000).toLocaleString("en-GB", { day: "numeric",
 const charName = (n) => esc(String(n || "").split(" ")[0]);
 
 async function loadTSM() {
-  T.loading = true; T.error = null; if (tab === "tsm" || tab === "batches") render();
+  T.loading = true; T.error = null; if (tab === "tsm" || tab === "batches" || tab === "recipes") render();
   try {
     const r = await fetch("/craft/api/tsm", { cache: "no-store" });
     if (r.status === 401) throw new Error("signin");
@@ -457,7 +460,7 @@ async function loadTSM() {
   } catch (e) {
     T.error = e.message === "signin" ? "signin" : e.message || "Couldn't reach the server.";
   }
-  T.loading = false; if (tab === "tsm" || tab === "batches") render();
+  T.loading = false; if (tab === "tsm" || tab === "batches" || tab === "recipes") render();
 }
 
 async function uploadTSM() {
@@ -738,6 +741,182 @@ function foundView() {
       ${T.showFinished ? `<div class="card" style="margin-top:10px"><table>${head}<tbody>${foundBatchRows(done)}</tbody></table></div>` : ""}` : ""}`;
 }
 
+// ---------- all recipes (the recipe database) ----------
+// Every Tailoring, Enchanting and Alchemy recipe from /craft/api/catalog (Wowhead Forever). Prices, best first:
+//   buying a reagent: vendor price, then your price (Prices tab or typed here), your latest TSM purchase (30 days),
+//     Wowhead's average AH price; crafting it instead (one level deep) when that is cheaper
+//   selling: your price, your latest TSM sale (30 days, listing price), Wowhead's average AH price
+const C = { data: null, loading: false, error: null, prof: "Tailoring", q: "", known: false, priced: true, sourced: true,
+  sort: "profit", open: null, limit: 150 };
+const TSM_DAYS = 30;
+const SKILL_COLORS = ["#ff8040", "#ffff00", "#40bf40", "#808080"];
+
+async function loadCatalog() {
+  C.loading = true; C.error = null;
+  try {
+    const r = await fetch("/craft/api/catalog");
+    if (!r.ok) throw new Error(`The server answered ${r.status}.`);
+    const d = await r.json();
+    d.bySpell = {}; d.byItem = {};
+    for (const x of d.recipes) {
+      d.bySpell[x.spell] = x;
+      if (x.item && !d.byItem[x.item]) d.byItem[x.item] = x;
+    }
+    C.data = d;
+  } catch (e) { C.error = e.message || "Couldn't reach the server."; }
+  C.loading = false; if (tab === "recipes") render();
+}
+const catName = (id) => ITEMS[id]?.name ?? C.data?.items[id]?.[0] ?? `item ${id}`;
+const catLink = (id) => `<a href="${WOWHEAD}/item=${id}" data-wh-rename-link="false">${esc(catName(id))}</a>`;
+
+// Latest TSM purchase (price each) and auction sale (listing price) per item, within TSM_DAYS
+let tsmIndexFor = null, tsmIndex = null;
+function tsmLatest() {
+  if (!T.data) return { buy: {}, sale: {} };
+  if (tsmIndexFor === T.data) return tsmIndex;
+  const since = Date.now() / 1000 - TSM_DAYS * 86400, buy = {}, sale = {};
+  for (const r of T.data.ledger.buys || []) {
+    const id = itemId(r.itemString);
+    if (id && r.time >= since && (!buy[id] || r.time > buy[id].time)) buy[id] = { price: r.price, time: r.time };
+  }
+  for (const r of T.data.ledger.sales || []) {
+    const id = itemId(r.itemString);
+    if (id && r.source === "Auction" && r.time >= since && (!sale[id] || r.time > sale[id].time)) sale[id] = { price: listedAt(r), time: r.time };
+  }
+  tsmIndexFor = T.data; tsmIndex = { buy, sale };
+  return tsmIndex;
+}
+const yourPrice = (id) => id in S.prices ? S.prices[id].ah : (ITEMS[id]?.ah ?? null);
+function catVendor(id) {
+  if (id in S.vendor) return S.vendor[id];
+  if (ITEMS[id]?.vendor != null) return ITEMS[id].vendor;
+  return T.data?.vendor?.[id] ?? C.data.vendor[id] ?? null;
+}
+function catBuy(id) {
+  const v = catVendor(id), mine = yourPrice(id), t = tsmLatest().buy[id], wh = C.data.items[id]?.[2];
+  if (v != null) return { cost: v, src: "Vendor" };
+  if (mine != null) return { cost: mine, src: "AH" };
+  if (t) return { cost: t.price, src: "TSM" };
+  if (wh) return { cost: wh, src: "Wowhead" };
+  return null;
+}
+function catSell(id) {
+  const mine = yourPrice(id), t = tsmLatest().sale[id], wh = C.data.items[id]?.[2];
+  if (mine != null) return { price: mine, src: "AH" };
+  if (t) return { price: t.price, src: "TSM" };
+  if (wh) return { price: wh, src: "Wowhead" };
+  return null;
+}
+// Cost of one reagent: buying, or crafting it from bought reagents when that is cheaper (or the only way)
+function catUnit(id, depth = 0) {
+  const buy = catBuy(id), rec = depth < 1 ? C.data.byItem[id] : null;
+  let craft = null;
+  if (rec && buy?.src !== "Vendor") {
+    const c = catCost(rec, depth + 1);
+    if (!c.missing.length) craft = { cost: c.each, src: "Craft", rough: c.rough };
+  }
+  if (craft && (!buy || craft.cost < buy.cost)) return { ...craft, missing: [] };
+  if (buy) return { ...buy, rough: buy.src === "Wowhead", missing: [] };
+  return { cost: 0, src: "none", rough: true, missing: [id] };
+}
+function catCost(rec, depth = 0) {
+  let total = 0, rough = false; const lines = [], missing = [];
+  for (const [id, q] of rec.reagents) {
+    const u = catUnit(id, depth);
+    total += q * u.cost; rough ||= u.rough; missing.push(...u.missing);
+    lines.push({ id, q, u });
+  }
+  return { total, each: rec.makes ? total / rec.makes : total, lines, missing, rough };
+}
+function catSummary(rec) {
+  const c = catCost(rec), sell = rec.item ? catSell(rec.item) : null;
+  const profit = sell ? net(sell.price) - c.each : null;
+  return { c, sell, profit, margin: profit != null && sell.price ? profit / sell.price : null };
+}
+const knownSpells = () => new Set((T.data?.crafts || []).map((c) => c.spell));
+function skillCell(r) {
+  const grey = r.grey ? ` <span class="small" title="Gives no more skill-ups from ${r.grey}">→${r.grey}</span>` : "";
+  return `${r.learn || "–"}${grey}`;
+}
+function learnFrom(r) {
+  const s = r.source.length ? r.source.join(", ") : "unknown";
+  return r.trainer ? `${s} ${fmt(r.trainer)}` : s;
+}
+
+function catalogView() {
+  if (C.error) return `<div class="card empty"><span class="err">${esc(C.error)}</span>
+    <div style="margin-top:10px"><button class="btn" data-act="catload">Try again</button></div></div>`;
+  if (!C.data) return '<div class="empty">Loading the recipe database…</div>';
+  const known = knownSpells(), q = C.q.trim().toLowerCase();
+  let rows = C.data.recipes.filter((r) => (C.prof === "all" || r.profession === C.prof)
+    && (!C.known || known.has(r.spell)) && (!C.sourced || r.source.length)
+    && (!q || r.name.toLowerCase().includes(q) || r.reagents.some(([id]) => catName(id).toLowerCase().includes(q))))
+    .map((r) => ({ r, s: catSummary(r) }));
+  if (C.priced) rows = rows.filter((x) => x.s.sell && !x.s.c.missing.length);
+  const by = { profit: (x) => x.s.profit ?? -Infinity, margin: (x) => x.s.margin ?? -Infinity, skill: (x) => -x.r.learn,
+    cost: (x) => -x.s.c.each };
+  rows.sort(C.sort === "name" ? (a, b) => a.r.name.localeCompare(b.r.name) : (a, b) => by[C.sort](b) - by[C.sort](a));
+  const total = rows.length, shown = rows.slice(0, C.limit);
+  const body = shown.map(({ r, s }) => {
+    const isOpen = C.open === r.spell, k = known.has(r.spell);
+    const warn = s.c.missing.length ? ' <span class="warn" title="A reagent has no price">⚠</span>'
+      : s.c.rough || s.sell?.src === "Wowhead" ? ' <span class="small" title="Uses Wowhead\'s average AH price somewhere: a rough guess for this realm">≈</span>' : "";
+    return `<tr class="open" tabindex="0" data-cat="${r.spell}" aria-expanded="${isOpen}">
+      <td><span class="chev">›</span> <a href="${WOWHEAD}/spell=${r.spell}" data-wh-rename-link="false">${esc(r.name)}</a>${r.makes > 1 ? ` <span class="small">×${r.makes}</span>` : ""}${k ? ' <span class="pill craft" title="One of your characters knows this (TSM)">known</span>' : ""}${warn}
+        ${C.prof === "all" ? `<div class="small">${esc(r.profession)}</div>` : ""}</td>
+      <td class="num">${skillCell(r)}</td><td class="small">${esc(learnFrom(r))}</td>
+      <td class="num">${gcell(s.c.each)}</td>
+      <td class="num">${r.item ? (s.sell ? `${gcell(s.sell.price)} ${srcTag(s.sell.src)}` : "–") : '<span class="small">enchant</span>'}</td>
+      <td class="num">${s.profit == null ? "–" : signed(s.profit)}${s.margin != null ? ` <span class="small">${(s.margin * 100).toFixed(0)}%</span>` : ""}</td></tr>
+      ${isOpen ? `<tr class="detail"><td colspan="6">${catDetail(r, s)}</td></tr>` : ""}`;
+  }).join("");
+  const profs = [["Tailoring", "Tailoring"], ["Enchanting", "Enchanting"], ["Alchemy", "Alchemy"], ["all", "All three"]];
+  const sorts = [["profit", "Profit each"], ["margin", "Margin"], ["skill", "Skill (high first)"], ["cost", "Cost (high first)"], ["name", "Name"]];
+  const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${cur === v ? " selected" : ""}>${t}</option>`).join("");
+  return `<div class="toolbar">
+      <select id="catProf" aria-label="Profession">${opt(profs, C.prof)}</select>
+      <input type="search" id="catQ" placeholder="Search recipe or reagent" value="${esc(C.q)}" aria-label="Search">
+      <select id="catSort" aria-label="Sort by">${opt(sorts, C.sort)}</select>
+      <label class="small" title="Wowhead lists no way to learn these: often not in the game yet"><input type="checkbox" id="catSourced"${C.sourced ? " checked" : ""}> only learnable</label>
+      <label class="small"><input type="checkbox" id="catPriced"${C.priced ? " checked" : ""}> only with prices</label>
+      <label class="small"${T.data ? "" : ' title="Needs your TSM data (sign in on the TSM tab)"'}><input type="checkbox" id="catKnown"${C.known ? " checked" : ""}${T.data ? "" : " disabled"}> only recipes I know</label>
+      <span class="small">${total} recipe${total === 1 ? "" : "s"}</span></div>
+    <div class="card"><table>
+      <thead><tr><th>Recipe</th><th class="num">Skill</th><th>Learn from</th><th class="num">Cost each</th>
+        <th class="num">Sells for</th><th class="num">Profit each</th></tr></thead>
+      <tbody>${body || '<tr><td colspan="6" class="empty">No recipes match.</td></tr>'}</tbody></table></div>
+    ${total > C.limit ? `<div class="toolbar"><button class="btn" data-act="catmore">Show all ${total}</button></div>` : ""}
+    <p class="note">Amounts come from Wowhead Forever (fetched ${esc(C.data.fetched || "?")}); every recipe your characters
+      know in game matched it. Prices, best first: vendor, your price (Prices tab, or type one in a recipe), your latest TSM
+      purchase or sale (last ${TSM_DAYS} days), then Wowhead's average AH price, marked ≈ because it isn't this realm's
+      price today. Reagents you can craft count as crafted when that's cheaper. Profit = price × 0.95 − cost.</p>`;
+}
+function srcTag(src) {
+  return { AH: '<span class="pill ah" title="Your price">yours</span>', TSM: '<span class="pill craft" title="Your latest TSM sale or purchase">TSM</span>',
+    Wowhead: '<span class="pill" title="Wowhead average AH price">≈ Wowhead</span>', Vendor: '<span class="pill vendor">vendor</span>',
+    Craft: '<span class="pill craft">craft</span>', none: '<span class="pill">no price</span>' }[src] || "";
+}
+function catDetail(r, s) {
+  const lines = s.c.lines.map((l) => `<tr><td>${catLink(l.id)}</td><td class="num">${l.q}</td>
+      <td class="num">${gcell(l.u.cost)}</td><td>${srcTag(l.u.src)}</td>
+      <td class="num"><input class="gin" type="text" value="${yourPrice(l.id) == null ? "" : fmt(yourPrice(l.id))}" placeholder="your price" data-ah="${l.id}" aria-label="Your price for ${esc(catName(l.id))}"></td>
+      <td class="num">${gcell(l.q * l.u.cost)}</td></tr>`).join("");
+  const facts = [esc(r.profession), r.learn ? `learn at ${r.learn}` : "", r.makes > 1 ? `makes ${r.makes}` : "",
+    `learn from: ${esc(learnFrom(r))}`, `<a href="${WOWHEAD}/spell=${r.spell}">recipe on Wowhead</a>`].filter(Boolean).join(" · ");
+  const product = r.item ? `<div class="row" style="margin-top:12px">
+      <span>Makes ${catLink(r.item)}</span>
+      <label class="field">Your AH price <input class="gin" type="text" value="${yourPrice(r.item) == null ? "" : fmt(yourPrice(r.item))}" placeholder="${s.sell ? fmt(s.sell.price) : "none"}" data-ah="${r.item}"></label>
+      ${s.sell ? `<span class="small">break-even ${fmt(breakEven(s.c.each))}</span>` : ""}</div>` : "";
+  return `<div class="small">${facts}</div>
+    <div class="inner"><table>
+      <thead><tr><th>Reagent</th><th class="num">Amount</th><th class="num">Each</th><th>Price from</th><th class="num">Your price</th><th class="num">Total</th></tr></thead>
+      <tbody>${lines}
+      <tr class="last"><td colspan="5"><b>Cost per craft</b>${r.makes > 1 ? ` <span class="small">(${r.makes} items, ${fmt(s.c.each)} each)</span>` : ""}</td>
+        <td class="num"><b>${gcell(s.c.total)}</b></td></tr></tbody></table></div>
+    ${s.c.missing.length ? `<div class="warn">No price for ${s.c.missing.map((m) => esc(catName(m))).join(", ")}: counted as 0.</div>` : ""}
+    ${product}`;
+}
+
 // ---------- input handling ----------
 function setGold(input, apply) {
   const v = parseGold(input.value);
@@ -758,15 +937,22 @@ view.addEventListener("change", (e) => {
   else if (t.id === "sRecipe") { form.saleRecipe = +t.value; }
   else if (t.id === "bQty") updateBatchCost();
   else if (t.id === "tsmPeriod") { T.period = t.value; render(); }
+  else if (t.id === "catProf") { C.prof = t.value; C.limit = 150; render(); }
+  else if (t.id === "catSort") { C.sort = t.value; render(); }
+  else if (t.id === "catSourced") { C.sourced = t.checked; render(); }
+  else if (t.id === "catPriced") { C.priced = t.checked; render(); }
+  else if (t.id === "catKnown") { C.known = t.checked; render(); }
   else if (t.id === "importFile" && t.files[0]) importBackup(t.files[0]);
 });
 let qTimer;
 view.addEventListener("input", (e) => {
   if (e.target.id === "bQty") updateBatchCost();
-  if (e.target.id === "tsmQ") {
-    T.q = e.target.value; clearTimeout(qTimer);
+  if (e.target.id === "tsmQ" || e.target.id === "catQ") {
+    const id = e.target.id;
+    if (id === "tsmQ") T.q = e.target.value; else C.q = e.target.value;
+    clearTimeout(qTimer);
     qTimer = setTimeout(() => { const pos = e.target.selectionStart; render();
-      const q = document.getElementById("tsmQ"); q.focus(); q.setSelectionRange(pos, pos); }, 250);
+      const q = document.getElementById(id); q.focus(); q.setSelectionRange(pos, pos); }, 250);
   }
 });
 view.addEventListener("keydown", (e) => {
@@ -801,6 +987,8 @@ view.addEventListener("click", (e) => {
     save(); render();
   } else if (d.act === "tsmupload") uploadTSM();
   else if (d.act === "tsmload") loadTSM();
+  else if (d.act === "catload") { loadCatalog(); render(); }
+  else if (d.act === "catmore") { C.limit = Infinity; render(); }
   else if (d.act === "export") {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 1)], { type: "application/json" }));
@@ -812,7 +1000,8 @@ view.addEventListener("click", (e) => {
 });
 function toggle(id) { open = open === id ? null : id; render(); }
 function toggleRow(row) {
-  if (row.dataset.found) { T.openBatch = T.openBatch === row.dataset.found ? null : row.dataset.found; render(); }
+  if (row.dataset.cat) { C.open = C.open === +row.dataset.cat ? null : +row.dataset.cat; render(); }
+  else if (row.dataset.found) { T.openBatch = T.openBatch === row.dataset.found ? null : row.dataset.found; render(); }
   else toggle(+row.dataset.open);
 }
 function importBackup(file) {

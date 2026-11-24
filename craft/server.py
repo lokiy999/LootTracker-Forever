@@ -3,6 +3,8 @@
 
 Only listens on localhost; Caddy forwards /craft/api/* to it:
   GET  /craft/api/recipes        public. Items and recipes (filled from recipes.py on every start).
+  GET  /craft/api/catalog        public. Every Tailoring, Enchanting and Alchemy recipe (from catalog.json) with
+                                 Wowhead's average AH prices and the vendor prices TSM knows.
   GET  /craft/api/tsm            behind the /admin password (Caddy basic_auth on /craft/api/tsm*).
   POST /craft/api/tsm/upload     same password. Body = TradeSkillMaster.lua; its ledger rows are merged in.
 
@@ -10,7 +12,8 @@ Merging: TSM's ledger rows have no ID, and the same row is in the file of every 
 A row (all its fields) is stored once with the most times it was in any one file, so uploading the same or an
 overlapping file again adds nothing, and two real identical sales in one file still count twice.
 
-Recipes: recipes.py is the source; the recipe tables are refilled from it whenever the file changes (no restart).
+Recipes: recipes.py is the source for the calculator's crafts, catalog.json (built by import_wowhead.py) for the full
+recipe database; their tables are refilled whenever a file changes (no restart).
 Uploads are kept gzipped in DATA/uploads/ (never deleted), so the database can be rebuilt from them.
 Database: DATA/craft.db (SQLite). Upload POSTs are refused when the browser says another website started them.
 """
@@ -56,6 +59,14 @@ CREATE TABLE IF NOT EXISTS inventory (name TEXT NOT NULL, realm TEXT NOT NULL, p
 CREATE TABLE IF NOT EXISTS crafts (spell INTEGER PRIMARY KEY, item INTEGER, name TEXT, profession TEXT,
   makes INTEGER, mats TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS vendor (item INTEGER PRIMARY KEY, price INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS catalog_items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, quality INTEGER,
+  wowhead_avg INTEGER, vendor_sell INTEGER);
+CREATE TABLE IF NOT EXISTS catalog (spell INTEGER PRIMARY KEY, name TEXT NOT NULL, profession TEXT NOT NULL,
+  item INTEGER, makes INTEGER NOT NULL, learn INTEGER, grey INTEGER, source TEXT NOT NULL, trainer INTEGER,
+  sort INTEGER);
+CREATE TABLE IF NOT EXISTS catalog_reagents (spell INTEGER NOT NULL, item INTEGER NOT NULL, qty INTEGER NOT NULL,
+  PRIMARY KEY (spell, item));
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
 
@@ -66,19 +77,65 @@ def connect():
 
 
 seeded_mtime = None
+CATALOG = os.path.join(HERE, "catalog.json")
+catalog_mtime = None
 
 
 def ensure_seeded(con):
-    """Refills the recipe tables when recipes.py changed, so a recipe edit needs no restart (and no sudo)."""
-    global seeded_mtime
+    """Refills the recipe tables when recipes.py or catalog.json changed, so an edit needs no restart (and no sudo)."""
+    global seeded_mtime, catalog_mtime
     mtime = os.path.getmtime(recipes.__file__)
-    if mtime == seeded_mtime:
+    if mtime != seeded_mtime:
+        with lock:
+            if mtime != seeded_mtime:
+                importlib.reload(recipes)
+                seed(con)
+                seeded_mtime = mtime
+    mtime = os.path.getmtime(CATALOG) if os.path.exists(CATALOG) else 0
+    if mtime != catalog_mtime:
+        with lock:
+            if mtime != catalog_mtime:
+                seed_catalog(con)
+                catalog_mtime = mtime
+
+
+def seed_catalog(con):
+    """The catalog tables are a copy of catalog.json: emptied and refilled in one transaction."""
+    if not os.path.exists(CATALOG):
         return
-    with lock:
-        if mtime != seeded_mtime:
-            importlib.reload(recipes)
-            seed(con)
-            seeded_mtime = mtime
+    with open(CATALOG, encoding="utf-8") as f:
+        cat = json.load(f)
+    with con:
+        for t in ("catalog_reagents", "catalog", "catalog_items"):
+            con.execute(f"DELETE FROM {t}")
+        con.executemany("INSERT INTO catalog_items VALUES (?,?,?,?,?)",
+                        [(int(i), *v) for i, v in cat["items"].items()])
+        for n, r in enumerate(cat["recipes"]):
+            con.execute("INSERT INTO catalog VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (r["spell"], r["name"], r["profession"], r["item"], r["makes"], r["learn"], r["grey"],
+                         json.dumps(r["source"]), r["trainer"], n))
+            con.executemany("INSERT INTO catalog_reagents VALUES (?,?,?)",
+                            [(r["spell"], int(i), q) for i, q in r["reagents"].items()])
+        con.execute("INSERT OR REPLACE INTO meta VALUES ('catalog_fetched', ?)", (cat["fetched"],))
+
+
+def catalog_data(con):
+    reagents = {}
+    for x in con.execute("SELECT spell, item, qty FROM catalog_reagents ORDER BY rowid"):
+        reagents.setdefault(x["spell"], []).append([x["item"], x["qty"]])
+    out = []
+    for r in con.execute("SELECT * FROM catalog ORDER BY sort"):
+        r = dict(r)
+        del r["sort"]
+        r["source"] = json.loads(r["source"])
+        r["reagents"] = reagents.get(r["spell"], [])
+        out.append(r)
+    fetched = con.execute("SELECT value FROM meta WHERE key='catalog_fetched'").fetchone()
+    return {"fetched": fetched[0] if fetched else None,
+            "items": {r["id"]: [r["name"], r["quality"], r["wowhead_avg"], r["vendor_sell"]]
+                      for r in con.execute("SELECT * FROM catalog_items")},
+            "vendor": {r["item"]: r["price"] for r in con.execute("SELECT item, price FROM vendor")},
+            "recipes": out}
 
 
 def seed(con):
@@ -113,19 +170,30 @@ def recipe_data(con):
 
 
 def recipe_diffs(con, crafts):
-    """Recipes in the file whose reagents or count differ from ours (the game's word, for Lokiy to look at)."""
-    diffs = []
+    """Recipes in the file whose reagents or count differ from ours (the game's word, for Lokiy to look at): the
+    calculator's recipes and the full recipe database (seeded at start; not reseeded here, the caller holds the lock)."""
+    reagents = {}
+    for x in con.execute("SELECT spell, item, qty FROM catalog_reagents"):
+        reagents.setdefault(x["spell"], {})[x["item"]] = x["qty"]
+    ours = {r["spell"]: (r["name"], r["makes"], reagents.get(r["spell"], {}), "the recipe database")
+            for r in con.execute("SELECT spell, name, makes FROM catalog")}
     for r in recipe_data(con)["recipes"]:
-        c = crafts.get(str(r["spell"]))
-        if not c:
+        ours[r["spell"]] = (recipes.ITEMS[r["item"]][0], r["makes"], {x["item"]: x["qty"] for x in r["reagents"]},
+                            "the calculator")
+    diffs = []
+    for spell, c in crafts.items():
+        try:
+            spell = int(spell)
+        except ValueError:
             continue
+        if spell not in ours:
+            continue
+        name, makes, mats, where = ours[spell]
         theirs = {int(str(k).split(":")[1]): v for k, v in c["mats"].items() if str(k).startswith("i:")}
-        ours = {x["item"]: x["qty"] for x in r["reagents"]}
-        name = recipes.ITEMS[r["item"]][0]
-        if theirs != ours:
-            diffs.append(f"{name}: the game says {theirs}, the database {ours}")
-        if c.get("numResult") not in (None, r["makes"]):
-            diffs.append(f"{name}: the game makes {c['numResult']} per craft, the database {r['makes']}")
+        if theirs != mats:
+            diffs.append(f"{name}: the game says {theirs}, {where} {mats}")
+        if makes and c.get("numResult") not in (None, makes):
+            diffs.append(f"{name}: the game makes {c['numResult']} per craft, {where} {makes}")
     return diffs
 
 
@@ -207,12 +275,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         route = self.path.split("?")[0]
-        if route in ("/craft/api/recipes", "/craft/api/tsm"):
+        if route in ("/craft/api/recipes", "/craft/api/catalog", "/craft/api/tsm"):
             con = connect()
             try:
                 if route.endswith("recipes"):
                     ensure_seeded(con)
                     return self.send(200, recipe_data(con))
+                if route.endswith("catalog"):
+                    ensure_seeded(con)
+                    return self.send(200, catalog_data(con))
                 return self.send(200, tsm_data(con))
             except ValueError as e:  # a broken recipes.py: the last good recipes stay in the database
                 return self.send(500, {"error": str(e)})

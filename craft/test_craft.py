@@ -75,6 +75,14 @@ def main():
         assert {x["item"]: x["qty"] for x in bag["reagents"]} == {14048: 5, 8170: 2, 14341: 1, 249430: 4, 249409: 2}
         assert len(rec["recipes"]) == 10 and len(rec["items"]) == 23
 
+        status, cat = call("/craft/api/catalog")
+        assert status == 200 and cat["fetched"], status
+        profs = {r["profession"] for r in cat["recipes"]}
+        assert profs == {"Tailoring", "Enchanting", "Alchemy"} and len(cat["recipes"]) > 700, profs
+        rrb = next(r for r in cat["recipes"] if r["spell"] == 1257465)
+        assert dict(map(tuple, rrb["reagents"])) == {14048: 5, 8170: 2, 14341: 1, 249431: 1}, rrb
+        assert cat["items"]["14048"][0] == "Bolt of Runecloth"
+
         first = tsm_file(SALES, BUYS)
         status, up = call("/craft/api/tsm/upload", first)
         assert status == 200, up
@@ -87,10 +95,14 @@ def main():
         # "another computer": one sale already known, one new, and a recipe the game sees differently
         other_sales = SALES.split("\\n")[0] + "\\n" + SALES.split("\\n")[3] + \
             "\\ni:254079,1,1,33500,Buyer Three,Alt Volaurin,1795500000,Auction"
-        craft = '["c:12079"] = { ["mats"] = { ["i:4339"] = 4, ["i:8343"] = 2, ["i:2604"] = 2 }, ["numResult"] = 1 },'
+        craft = ('["c:12079"] = { ["mats"] = { ["i:4339"] = 4, ["i:8343"] = 2, ["i:2604"] = 2 }, ["numResult"] = 1 },'
+                 # a recipe only in the recipe database (Bolt of Silk Cloth: 4 Silk Cloth), the game saying 3
+                 '["c:3839"] = { ["mats"] = { ["i:4306"] = 3 }, ["numResult"] = 1 },')
         status, up = call("/craft/api/tsm/upload", tsm_file(other_sales, BUYS, craft))
         assert up["added"] == {"sales": 1, "buys": 0, "expense": 0}, up["added"]
-        assert len(up["recipeDiffs"]) == 1 and "Red Mageweave Bag" in up["recipeDiffs"][0], up["recipeDiffs"]
+        assert len(up["recipeDiffs"]) == 2, up["recipeDiffs"]
+        assert any("Red Mageweave Bag" in d and "the calculator" in d for d in up["recipeDiffs"]), up["recipeDiffs"]
+        assert any("Bolt of Silk Cloth" in d and "the recipe database" in d for d in up["recipeDiffs"]), up["recipeDiffs"]
 
         status, t = call("/craft/api/tsm")
         assert status == 200
@@ -101,7 +113,7 @@ def main():
         assert len(os.listdir(os.path.join(data, "uploads"))) >= 1
         inv = {(r["place"], r["item"]): r["qty"] for r in t["inventory"]}
         assert inv == {("bag", 254079): 20, ("bag", 14047): 5, ("auction", 254079): 4}, inv
-        assert {c["spell"] for c in t["crafts"]} == {18405, 12079} and t["vendor"] == {"14341": 5000, "2604": 50}
+        assert {c["spell"] for c in t["crafts"]} == {18405, 12079, 3839} and t["vendor"] == {"14341": 5000, "2604": 50}
 
         # an older save (another computer that hasn't played since) doesn't overwrite gold or inventory...
         call("/craft/api/tsm/upload", tsm_file(SALES, BUYS, saved=1795400000, money=5, bags=1))

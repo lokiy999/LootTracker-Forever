@@ -286,3 +286,14 @@ for auction sales) and "Received", and a batch's "if the rest sells" uses the li
   that has one. `site/collection/index.html`: Transmog tab (a meter per slot, account total) and an Appearances count.
 - Tests: harness (counts, a secret name, a category that errors, the event read once, none on the old API), test_flow
   (a snapshot with transmog, a refused negative count, the build). Page checked in a browser with test data.
+
+## 2026-11-24: Crafting calculator: recipe database of all Tailoring, Enchanting and Alchemy recipes
+- `craft/catalog.json`: all 826 recipes in WoW Forever for the three professions (414 Tailoring, 229 Enchanting,
+  183 Alchemy) from Wowhead Forever's profession lists, with reagents, amounts, items per craft, skill, where they're
+  learned, and Wowhead's average AH price per item. All 110 recipes Lokiy knows in game (TSM) match it exactly.
+- `craft/import_wowhead.py` rebuilds it from lists saved in a browser (Wowhead refuses scripts; steps in the file).
+- `craft/server.py`: `catalog*` tables refilled when the file changes, public `GET /craft/api/catalog`, and TSM
+  uploads are now checked against every recipe in it, not only the calculator's.
+- `site/craft/`: new "All recipes" tab: cost, sale price and profit for every recipe, sorted by profit, filters for
+  profession, learnable, priced and "recipes I know". Prices: vendor, your price, your latest TSM purchase or sale,
+  then Wowhead's average (marked ≈ as rough). Reagents count as crafted when that's cheaper.

@@ -19,15 +19,23 @@ items per craft, where the data comes from). The service refills the recipe tabl
 so editing it needs no restart. Wowhead Forever is leading unless Lokiy says otherwise; when an upload's TSM recipes
 (what the game told TSM) differ from the database, the upload answer says so.
 
+## Recipe database (all recipes)
+
+`catalog.json` holds every Tailoring, Enchanting and Alchemy recipe in WoW Forever (826, from Wowhead Forever): spell,
+product and how many a craft makes, reagents and amounts, skill to learn and when it turns grey, where it's learned,
+plus each item's name, quality and Wowhead's average AH price. The service copies it into the `catalog*` tables
+whenever the file changes (no restart) and serves it at `GET /craft/api/catalog` (public) with the vendor prices TSM
+knows. The page's "All recipes" tab shows it with cost, price and profit. To refresh it, follow the steps at the top
+of `import_wowhead.py` (Wowhead refuses scripts, so the lists are saved from a browser). TSM uploads are checked
+against it too: a recipe where the game says something else is reported in the upload answer.
+
 ## TSM uploads
 
 `POST /craft/api/tsm/upload` with `TradeSkillMaster.lua` from
 `World of Warcraft\_forever_\WTF\Account\<account>\SavedVariables\`. `tsm.py` reads it as data (via
 `server/luadata.py`) and takes TSM's accounting (sales, purchases, cancelled, expired, postage, other income), the
-characters' gold and inventory (bags, bank, mail, AH; only replaced by a newer save of that character, by TSM's
-`goldLogLastUpdate`), TSM's recipe list and its vendor prices. Each ledger row is stored once with the most times it was in a single file,
+characters' gold and TSM's recipe list. Each ledger row is stored once with the most times it was in a single file,
 so uploads from several computers combine without double counting. `GET /craft/api/tsm` returns it all for the
-page's TSM tab and for the batches it finds in your purchases (Batches tab, worked out in the page: purchase
-rounds, the craft they most likely went into, sales oldest batch first, open while in stock).
+page's TSM tab.
 
 A code change to `server.py` or `tsm.py` needs `sudo systemctl restart forever-craft`.
