@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS ledger (kind TEXT NOT NULL, realm TEXT NOT NULL, row 
   upload INTEGER NOT NULL, PRIMARY KEY (kind, realm, row));
 CREATE TABLE IF NOT EXISTS characters (name TEXT NOT NULL, realm TEXT NOT NULL, faction TEXT, class TEXT,
   money INTEGER, updated INTEGER, PRIMARY KEY (name, realm));
+CREATE TABLE IF NOT EXISTS inventory (name TEXT NOT NULL, realm TEXT NOT NULL, place TEXT NOT NULL,
+  item INTEGER NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY (name, realm, place, item));
+CREATE TABLE IF NOT EXISTS crafts (spell INTEGER PRIMARY KEY, item INTEGER, name TEXT, profession TEXT,
+  makes INTEGER, mats TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS vendor (item INTEGER PRIMARY KEY, price INTEGER NOT NULL);
 """
 
 
@@ -138,11 +143,26 @@ def merge(con, data, upload_id):
             elif n > old["n"]:
                 con.execute("UPDATE ledger SET n=? WHERE kind=? AND realm=? AND row=?", (n, kind, realm, row))
                 added[kind] += n - old["n"]
-    now = int(time.time())
+    # A character's gold and inventory are a snapshot: only a newer save of that character replaces them
     for c in data["characters"]:
+        old = con.execute("SELECT updated FROM characters WHERE name=? AND realm=?", (c["name"], c["realm"])).fetchone()
+        if old and old["updated"] and (c.get("updated") or 0) < old["updated"]:
+            continue
         con.execute("""INSERT INTO characters VALUES (?,?,?,?,?,?) ON CONFLICT(name, realm) DO UPDATE SET
                        faction=excluded.faction, class=excluded.class, money=excluded.money, updated=excluded.updated""",
-                    (c["name"], c["realm"], c.get("faction"), c.get("class"), c.get("money"), now))
+                    (c["name"], c["realm"], c.get("faction"), c.get("class"), c.get("money"), c.get("updated")))
+        con.execute("DELETE FROM inventory WHERE name=? AND realm=?", (c["name"], c["realm"]))
+        con.executemany("INSERT INTO inventory VALUES (?,?,?,?,?)",
+                        [(c["name"], c["realm"], place, item, qty)
+                         for place, items in c.get("inventory", {}).items() for item, qty in items.items()])
+    for spell, craft in data["crafts"].items():
+        mats = {tsm.item_id(k): v for k, v in craft["mats"].items() if tsm.item_id(k) and isinstance(v, int)}
+        if not str(spell).isdigit() or not mats:
+            continue
+        con.execute("INSERT OR REPLACE INTO crafts VALUES (?,?,?,?,?,?)",
+                    (int(spell), tsm.item_id(craft.get("itemString")), craft.get("name"), craft.get("profession"),
+                     craft.get("numResult") or 1, json.dumps(mats)))
+    con.executemany("INSERT OR REPLACE INTO vendor VALUES (?,?)", data["vendor"].items())
     return added, in_file
 
 
@@ -155,7 +175,12 @@ def tsm_data(con):
     uploads = [{**dict(u), "characters": json.loads(u["characters"]), "added": json.loads(u["added"])}
                for u in con.execute("SELECT id, at, size, characters, added FROM uploads ORDER BY id DESC")]
     chars = [dict(c) for c in con.execute("SELECT * FROM characters ORDER BY name")]
-    return {"ledger": ledger, "uploads": uploads, "characters": chars}
+    inventory = [dict(r) for r in con.execute("SELECT name, place, item, qty FROM inventory")]
+    crafts = [{**dict(r), "mats": {int(k): v for k, v in json.loads(r["mats"]).items()}}
+              for r in con.execute("SELECT * FROM crafts")]
+    vendor = {r["item"]: r["price"] for r in con.execute("SELECT * FROM vendor")}
+    return {"ledger": ledger, "uploads": uploads, "characters": chars, "inventory": inventory, "crafts": crafts,
+            "vendor": vendor}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -254,12 +279,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, {"added": added, "inFile": in_file, "characters": names, "recipeDiffs": diffs})
 
 
+def reread_uploads(con):
+    """Uploads from before the crafts/inventory tables existed: read the kept files again, oldest first. Merging a
+    file twice adds no ledger rows, so this only fills what's missing."""
+    if con.execute("PRAGMA user_version").fetchone()[0] >= 1:
+        return
+    with con:  # before this, "updated" was the upload time, not the save time: let the files set it again
+        con.execute("UPDATE characters SET updated=NULL")
+    for u in con.execute("SELECT id, file FROM uploads ORDER BY id").fetchall():
+        try:
+            with gzip.open(os.path.join(DATA, "uploads", u["file"]), "rb") as f:
+                data = tsm.read(f.read().decode("utf-8", errors="replace"))
+        except (OSError, tsm.NotTSM) as e:
+            sys.stderr.write(f"upload {u['file']} not read again: {e}\n")
+            continue
+        with con:
+            merge(con, data, u["id"])
+    con.execute("PRAGMA user_version = 1")
+
+
 def main():
     os.makedirs(os.path.join(DATA, "uploads"), exist_ok=True)
     con = connect()
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)
     ensure_seeded(con)
+    reread_uploads(con)
     con.close()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 

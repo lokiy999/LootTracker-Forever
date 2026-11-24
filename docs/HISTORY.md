@@ -187,3 +187,20 @@ breakdown shows the source and a Wowhead link; saved prices and batches move to 
 (received after the 5% cut, spent, postage, gold), by item, sales, purchases, cancelled/expired, uploads, with a
 period and text filter. `craft/test_craft.py` checks recipes, merging, repeat and overlapping uploads, the recipe
 check and refused uploads. Lokiy's real file: 146 sales, 72 purchases, 10 cancelled, 1 expired, 2 postage.
+
+## 2026-11-24: Batches found in TSM purchases
+
+Lokiy: detect the latest bought items, see what they were most likely crafted into, and keep that open as a batch while
+the items are still in inventory or not sold. The Batches tab now starts with "From your TSM purchases", worked out in
+the page from the TSM data: purchases are grouped into rounds (new round after 30 minutes; leftovers carry over up to
+7 days); after each round the crafts the materials most likely went into become batches, crafts using more kinds of
+material first. Candidates are the database's recipes and every recipe in TSM's list whose product was sold; bolts
+and dyes may come from their cloth or herbs; vendor reagents that weren't bought count at the vendor price. A batch's
+cost is what was paid for the materials it used. Sales come out of the oldest batch. A batch is open while it isn't
+sold out and its items are in stock (newest batch first), or the newest batch's stock materials cover a craft;
+otherwise it's under the closed batches (sold out, or not sold but not in stock).
+
+`craft/tsm.py` and `craft/server.py` now also keep each character's inventory (replaced only by a newer save, by
+`goldLogLastUpdate`), TSM's recipe list and vendor prices; uploads from before are read again once on start.
+`craft/test_craft.py` checks the new data and the save-time rule. With Lokiy's file: 13 batches (5 Green Silk Pack,
+8 Runecloth Reagent Bag), 92 bags sold matching TSM, the two 24 Nov rounds open with 24 bags in stock.

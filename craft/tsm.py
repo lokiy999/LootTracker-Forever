@@ -3,8 +3,11 @@
 What it takes out:
   ledger      TSM's accounting: r@<realm>@internalData@csv{Sales,Buys,Cancelled,Expired,Expense,Income}, CSV text with
               a header row. Each row becomes a dict keyed by that header.
-  characters  s@<Name Realm> - <Faction> - <realm>@internalData@{money,classKey}
+  characters  s@<Name Realm> - <Faction> - <realm>@internalData@{money,classKey,goldLogLastUpdate}; goldLogLastUpdate
+              (unix time) says how new the character's numbers are, so an older file never overwrites newer ones
+  inventory   s@...@internalData@{bag,bank,mail,auction,...}Quantity: item -> count, per character
   crafts      f@<Faction> - <realm>@internalData@crafts: the recipes the game told TSM (spell -> mats, numResult)
+  vendor      g@ @internalData@vendorItems: item -> vendor buy price (full price; reputation discounts not included)
 """
 import csv
 import io
@@ -19,8 +22,17 @@ KINDS = {"csvSales": "sales", "csvBuys": "buys", "csvCancelled": "cancelled", "c
          "csvExpense": "expense", "csvIncome": "income"}
 INT_FIELDS = {"stackSize", "quantity", "price", "time", "amount"}
 LEDGER_KEY = re.compile(r"^r@(?P<realm>[^@]+)@internalData@(?P<csv>csv\w+)$")
-CHAR_KEY = re.compile(r"^s@(?P<name>.+) - (?P<faction>[^-@]+) - (?P<realm>[^@]+)@internalData@(?P<field>money|classKey)$")
+CHAR_KEY = re.compile(r"^s@(?P<name>.+) - (?P<faction>[^-@]+) - (?P<realm>[^@]+)@internalData@"
+                      r"(?P<field>money|classKey|goldLogLastUpdate|(?P<place>\w+)Quantity)$")
 CRAFTS_KEY = re.compile(r"^f@[^@]+@internalData@crafts$")
+VENDOR_KEY = "g@ @internalData@vendorItems"
+CHAR_FIELDS = {"money": "money", "classKey": "class", "goldLogLastUpdate": "updated"}
+
+
+def item_id(item_string):
+    """"i:14046" or "i:14046::::" -> 14046; anything else (pets, names) -> None"""
+    m = re.match(r"^i:(\d+)", str(item_string))
+    return int(m.group(1)) if m else None
 
 
 class NotTSM(ValueError):
@@ -52,7 +64,7 @@ def read(text):
     db = top.get("TradeSkillMasterDB")
     if not isinstance(db, dict):
         raise NotTSM("This isn't TradeSkillMaster.lua (no TradeSkillMasterDB in it).")
-    ledger, chars, crafts = {}, {}, {}
+    ledger, chars, crafts, vendor = {}, {}, {}, {}
     for key, value in db.items():
         m = LEDGER_KEY.match(key)
         if m and m["csv"] in KINDS and isinstance(value, str):
@@ -60,11 +72,20 @@ def read(text):
             continue
         m = CHAR_KEY.match(key)
         if m:
-            c = chars.setdefault((m["name"], m["realm"]), {"name": m["name"], "realm": m["realm"], "faction": m["faction"]})
-            c["money" if m["field"] == "money" else "class"] = value
+            c = chars.setdefault((m["name"], m["realm"]), {"name": m["name"], "realm": m["realm"], "faction": m["faction"],
+                                                           "inventory": {}})
+            if m["place"]:
+                if isinstance(value, dict):
+                    c["inventory"][m["place"]] = {i: q for k, q in value.items()
+                                                  if (i := item_id(k)) and isinstance(q, int) and q > 0}
+            else:
+                c[CHAR_FIELDS[m["field"]]] = value
             continue
         if CRAFTS_KEY.match(key) and isinstance(value, dict):
             for spell, craft in value.items():
                 if isinstance(craft, dict) and isinstance(craft.get("mats"), dict):
                     crafts[str(spell).replace("c:", "")] = craft
-    return {"ledger": ledger, "characters": list(chars.values()), "crafts": crafts}
+            continue
+        if key == VENDOR_KEY and isinstance(value, dict):
+            vendor = {i: p for k, p in value.items() if (i := item_id(k)) and isinstance(p, int)}
+    return {"ledger": ledger, "characters": list(chars.values()), "crafts": crafts, "vendor": vendor}

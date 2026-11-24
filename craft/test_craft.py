@@ -3,7 +3,8 @@
 
 Uses a made-up TradeSkillMaster.lua (no real player data in the repo). Checks: recipes come from the database,
 an upload is merged, the same file again adds nothing, an overlapping file from "another computer" only adds its
-new rows, a recipe that differs from the game is reported, uploads from other websites and non-TSM files are refused.
+new rows, a recipe that differs from the game is reported, inventory and gold only change for a newer save, TSM's
+recipes and vendor prices are kept, uploads from other websites and non-TSM files are refused.
 """
 import json
 import os
@@ -26,15 +27,19 @@ BUYS = ("itemString,stackSize,quantity,price,otherPlayer,player,time,source\\n"
         "i:14047,20,20,555,Multiple Sellers,Lokiy Volaurin,1795300000,Auction")
 
 
-def tsm_file(sales, buys, extra_craft=""):
+def tsm_file(sales, buys, extra_craft="", saved=1795400500, money=1034692, bags=20):
     return f"""
 TradeSkillMasterDB = {{
 ["_version"] = 1,
 ["r@Normal@internalData@csvSales"] = "{sales}",
 ["r@Normal@internalData@csvBuys"] = "{buys}",
 ["r@Normal@internalData@csvExpense"] = "type,amount,otherPlayer,player,time\\nPostage,30,Alt Volaurin,Lokiy Volaurin,1795300100",
-["s@Lokiy Volaurin - Horde - Normal@internalData@money"] = 1034692,
+["s@Lokiy Volaurin - Horde - Normal@internalData@money"] = {money},
 ["s@Lokiy Volaurin - Horde - Normal@internalData@classKey"] = "PRIEST",
+["s@Lokiy Volaurin - Horde - Normal@internalData@goldLogLastUpdate"] = {saved},
+["s@Lokiy Volaurin - Horde - Normal@internalData@bagQuantity"] = {{ ["i:254079"] = {bags}, ["i:14047"] = 5 }},
+["s@Lokiy Volaurin - Horde - Normal@internalData@auctionQuantity"] = {{ ["i:254079"] = 4 }},
+["g@ @internalData@vendorItems"] = {{ ["i:14341"] = 5000, ["i:2604"] = 50 }},
 ["f@Horde - Normal@internalData@crafts"] = {{
 ["c:18405"] = {{ ["mats"] = {{ ["i:14048"] = 5, ["i:249409"] = 2, ["i:8170"] = 2, ["i:14341"] = 1, ["i:249430"] = 4 }}, ["numResult"] = 1, ["name"] = "Runecloth Bag" }},
 {extra_craft}
@@ -94,6 +99,18 @@ def main():
         assert next(r for r in sales if r["itemString"] == "i:14046")["n"] == 2
         assert len(t["uploads"]) == 3 and t["characters"][0]["money"] == 1034692
         assert len(os.listdir(os.path.join(data, "uploads"))) >= 1
+        inv = {(r["place"], r["item"]): r["qty"] for r in t["inventory"]}
+        assert inv == {("bag", 254079): 20, ("bag", 14047): 5, ("auction", 254079): 4}, inv
+        assert {c["spell"] for c in t["crafts"]} == {18405, 12079} and t["vendor"] == {"14341": 5000, "2604": 50}
+
+        # an older save (another computer that hasn't played since) doesn't overwrite gold or inventory...
+        call("/craft/api/tsm/upload", tsm_file(SALES, BUYS, saved=1795400000, money=5, bags=1))
+        status, t = call("/craft/api/tsm")
+        assert t["characters"][0]["money"] == 1034692 and ("bag", 254079, 20) in {(r["place"], r["item"], r["qty"]) for r in t["inventory"]}
+        # ...a newer one does
+        call("/craft/api/tsm/upload", tsm_file(SALES, BUYS, saved=1795409999, money=7, bags=3))
+        status, t = call("/craft/api/tsm")
+        assert t["characters"][0]["money"] == 7 and ("bag", 254079, 3) in {(r["place"], r["item"], r["qty"]) for r in t["inventory"]}
 
         status, err = call("/craft/api/tsm/upload", first, {"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"})
         assert status == 403, (status, err)
@@ -101,7 +118,8 @@ def main():
         assert status == 400 and "TradeSkillMaster" in err["error"], err
         status, err = call("/craft/api/tsm/upload", b"not lua at all {{{")
         assert status == 400, err
-        print("ok: recipes, merge, repeat upload, overlapping upload, recipe check, refused uploads")
+        print("ok: recipes, merge, repeat upload, overlapping upload, recipe check, inventory and its save time, "
+              "TSM recipes and vendor prices, refused uploads")
     finally:
         proc.terminate()
         proc.wait()

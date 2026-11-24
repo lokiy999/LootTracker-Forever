@@ -24,8 +24,10 @@ so editing it needs no restart. Wowhead Forever is leading unless Lokiy says oth
 `POST /craft/api/tsm/upload` with `TradeSkillMaster.lua` from
 `World of Warcraft\_forever_\WTF\Account\<account>\SavedVariables\`. `tsm.py` reads it as data (via
 `server/luadata.py`) and takes TSM's accounting (sales, purchases, cancelled, expired, postage, other income), the
-characters' gold and TSM's recipe list. Each ledger row is stored once with the most times it was in a single file,
+characters' gold and inventory (bags, bank, mail, AH; only replaced by a newer save of that character, by TSM's
+`goldLogLastUpdate`), TSM's recipe list and its vendor prices. Each ledger row is stored once with the most times it was in a single file,
 so uploads from several computers combine without double counting. `GET /craft/api/tsm` returns it all for the
-page's TSM tab.
+page's TSM tab and for the batches it finds in your purchases (Batches tab, worked out in the page: purchase
+rounds, the craft they most likely went into, sales oldest batch first, open while in stock).
 
 A code change to `server.py` or `tsm.py` needs `sudo systemctl restart forever-craft`.

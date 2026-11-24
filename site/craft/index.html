@@ -216,7 +216,8 @@ const tabs = document.getElementById("tabs");
 tabs.addEventListener("click", (e) => {
   const b = e.target.closest(".tab"); if (!b || !RECIPES.length) return;
   tab = b.dataset.tab; render();
-  if (tab === "tsm" && !T.data && !T.loading) loadTSM();
+  // The TSM tab always loads; Batches only once this browser has signed in before (no password box for visitors)
+  if ((tab === "tsm" || (tab === "batches" && S.tsmSignedIn)) && !T.data && !T.loading) loadTSM();
 });
 
 function render() {
@@ -227,7 +228,7 @@ function render() {
   el.textContent = stale.length ? `${stale.length} AH price${stale.length > 1 ? "s are" : " is"} more than 12 hours old. Update them on the Prices tab before trusting the profit.` : "";
   view.innerHTML = tab === "calc" ? calcView() : tab === "prices" ? pricesView() : tab === "batches" ? batchesView() : tsmView();
   if (tab === "batches") updateBatchCost();
-  if (tab === "tsm") refreshTooltips();
+  if (tab === "tsm" || tab === "batches") refreshTooltips();
 }
 
 function missingNote(missing) {
@@ -392,7 +393,7 @@ function batchesView() {
       <td class="num">${s.qty}</td><td class="num">${gcell(s.price)}</td><td class="num">${gcell(s.qty * net(s.price))}</td>
       <td><button class="link" data-delsale="${s.id}" aria-label="Delete sale">✕</button></td></tr>`;
   }).join("");
-  return `<div class="grid2">
+  return foundView() + `<h2>Batches you entered yourself</h2><div class="grid2">
     <div class="card pad"><h2 style="margin-top:0">New batch</h2>
       <div class="row">
         <label class="field">Craft <select id="bRecipe">${opt(form.recipe)}</select></label>
@@ -416,7 +417,7 @@ function batchesView() {
       <p class="small" style="margin:10px 2px">The sold price before the 5% cut. Sales come out of the oldest batch of that craft first.</p>
       <button class="btn primary" data-act="addsale">Save sale</button>
     </div></div>
-    <h2>Batches</h2>
+    <h2>Your batches</h2>
     <div class="card">${batches.length ? `<table><thead><tr><th>Date</th><th>Craft</th><th class="num">Made</th><th class="num">Sold</th>
       <th class="num">Left</th><th class="num">Cost each</th><th class="num">Break-even</th><th class="num">Received</th>
       <th class="num">Profit so far</th><th class="num">If the rest sells at AH price</th><th></th></tr></thead><tbody>${brows}</tbody></table>`
@@ -446,16 +447,17 @@ const when = (t) => new Date(t * 1000).toLocaleString("en-GB", { day: "numeric",
 const charName = (n) => esc(String(n || "").split(" ")[0]);
 
 async function loadTSM() {
-  T.loading = true; T.error = null; if (tab === "tsm") render();
+  T.loading = true; T.error = null; if (tab === "tsm" || tab === "batches") render();
   try {
     const r = await fetch("/craft/api/tsm", { cache: "no-store" });
     if (r.status === 401) throw new Error("signin");
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `The server answered ${r.status}.`);
     T.data = await r.json();
+    if (!S.tsmSignedIn) { S.tsmSignedIn = true; save(); }
   } catch (e) {
     T.error = e.message === "signin" ? "signin" : e.message || "Couldn't reach the server.";
   }
-  T.loading = false; if (tab === "tsm") render();
+  T.loading = false; if (tab === "tsm" || tab === "batches") render();
 }
 
 async function uploadTSM() {
@@ -560,6 +562,178 @@ function tsmView() {
       A row that was in several uploads counts once.</p>`;
 }
 
+// ---------- batches found in TSM purchases ----------
+// Purchases are grouped into rounds (a new round after a 30-minute gap). After each round, the crafts the bought
+// materials (plus leftovers from earlier rounds) most likely went into become batches: crafts that use more kinds of
+// material go first; bolts and dyes may come from their cloth or herbs; vendor reagents that weren't bought are
+// counted at the vendor price. A round only makes a batch when it bought something for that craft. Candidates: the
+// database's recipes and every TSM recipe whose product you have sold. Sales then come out of the oldest batch.
+const ROUND_GAP = 30 * 60, CARRY_DAYS = 7;
+function detectBatches(d) {
+  if (!d?.ledger?.buys?.length) return null;
+  const soldItems = new Set((d.ledger.sales || []).map((r) => itemId(r.itemString)));
+  const vendorP = (id) => ITEMS[id]?.vendor ?? d.vendor[id] ?? null;
+  const isVendor = (id) => vendorP(id) != null;
+  const recipes = new Map(), subs = new Map();
+  for (const id of RECIPES) { const c = ITEMS[id].craft; recipes.set(id, { item: id, name: nameOf(id), makes: c.makes, from: c.from }); }
+  for (const [id, it] of Object.entries(ITEMS)) if (it.sub) subs.set(+id, { makes: it.craft.makes, from: it.craft.from });
+  for (const c of d.crafts) {
+    if (!c.item) continue;
+    const from = Object.entries(c.mats).map(([i, q]) => [+i, q]);
+    if (!subs.has(c.item)) subs.set(c.item, { makes: c.makes, from });
+    const subOnly = ITEMS[c.item]?.sub && !RECIPES.includes(c.item);
+    if (!recipes.has(c.item) && !subOnly && soldItems.has(c.item)) recipes.set(c.item, { item: c.item, name: c.name, makes: c.makes, from });
+  }
+  const cands = [...recipes.values()].map((r) => ({ ...r, need: r.from.filter(([i]) => !isVendor(i)) }))
+    .filter((r) => r.need.length).sort((a, b) => b.need.length - a.need.length);
+
+  const pool = new Map();  // item -> [{ qty, price, time }] oldest first
+  const have = (i) => (pool.get(i) || []).reduce((t, l) => t + l.qty, 0);
+  const viaSub = (i) => {  // how many of i its own recipe could make from what's in the pool (one level down)
+    const s = subs.get(i); if (!s || isVendor(i)) return 0;
+    const need = s.from.filter(([x]) => !isVendor(x));
+    return need.length ? Math.min(...need.map(([x, q]) => Math.floor(have(x) / q))) * s.makes : 0;
+  };
+  const take = (i, n, used) => {  // n of item i from the pool, oldest first; returns what's still missing
+    const lots = pool.get(i) || [];
+    while (n > 0 && lots.length) {
+      const l = lots[0], k = Math.min(n, l.qty);
+      l.qty -= k; n -= k; add(used, i, k, k * l.price);
+      if (!l.qty) lots.shift();
+    }
+    return n;
+  };
+  const add = (used, i, qty, cost) => { const u = used.get(i) || { qty: 0, cost: 0 }; u.qty += qty; u.cost += cost; used.set(i, u); };
+  const consume = (i, n, used) => {
+    let left = take(i, n, used);
+    if (left > 0 && isVendor(i)) { add(used, i, left, left * vendorP(i)); left = 0; }
+    if (left > 0) {
+      const s = subs.get(i);
+      if (!s) { add(used, i, left, 0); return; }  // only when two reagents share a material and it ran short
+      const crafts = Math.ceil(left / s.makes);
+      for (const [x, q] of s.from) consume(x, crafts * q, used);
+    }
+  };
+
+  const buys = [...d.ledger.buys].sort((a, b) => a.time - b.time);
+  const batches = [];
+  for (let k = 0; k < buys.length;) {
+    const start = buys[k].time, bought = new Set();
+    let end = start;
+    while (k < buys.length && buys[k].time - end <= ROUND_GAP) {
+      const r = buys[k++], i = itemId(r.itemString);
+      end = r.time; bought.add(i);
+      if (!pool.has(i)) pool.set(i, []);
+      pool.get(i).push({ qty: r.quantity * r.n, price: r.price, time: r.time });
+    }
+    for (const c of cands) {
+      const fromRound = c.need.some(([i]) => bought.has(i) || (subs.get(i)?.from || []).some(([x]) => bought.has(x)));
+      if (!fromRound) continue;
+      const crafts = Math.min(...c.need.map(([i, q]) => Math.floor((have(i) + viaSub(i)) / q)));
+      if (crafts < 1) continue;
+      const used = new Map();
+      for (const [i, q] of c.from) consume(i, crafts * q, used);
+      const cost = [...used.values()].reduce((t, u) => t + u.cost, 0);
+      batches.push({ key: `${c.item}-${start}`, item: c.item, name: c.name, need: c.need, time: start, end, crafts, made: crafts * c.makes,
+        cost, costEach: cost / (crafts * c.makes), used, sold: 0, got: 0, lastSale: null });
+    }
+    for (const [i, lots] of pool) pool.set(i, lots.filter((l) => l.qty > 0 && end - l.time < CARRY_DAYS * 86400));
+  }
+
+  const unmatched = {};
+  for (const s of [...(d.ledger.sales || [])].sort((a, b) => a.time - b.time)) {
+    const i = itemId(s.itemString);
+    let left = s.quantity * s.n;
+    for (const b of batches) {
+      if (!left) break;
+      if (b.item !== i || b.time > s.time || b.sold >= b.made) continue;
+      const k = Math.min(left, b.made - b.sold);
+      b.sold += k; b.got += k * s.price * (s.source === "Auction" ? CUT : 1); b.lastSale = s.price; left -= k;
+    }
+    if (left && batches.some((b) => b.item === i)) unmatched[i] = (unmatched[i] || 0) + left;
+  }
+  // Open = not sold out and still in stock (bags, bank, mail, AH; newest batch first, since sales take the oldest),
+  // or the newest batch's materials are still in stock (not crafted yet). Unsold and nowhere in stock = "gone".
+  const stock = {}, hasInventory = (d.inventory || []).length > 0;
+  for (const r of d.inventory || []) ((stock[r.item] ||= {})[r.place] = (stock[r.item]?.[r.place] || 0) + r.qty);
+  const inStock = (i) => Object.values(stock[i] || {}).reduce((t, q) => t + q, 0);
+  const craftsFromStock = (need) => Math.min(...need.map(([i, q]) => {
+    const s = subs.get(i), subNeed = s && !isVendor(i) ? s.from.filter(([x]) => !isVendor(x)) : [];
+    const viaStock = subNeed.length ? Math.min(...subNeed.map(([x, k]) => Math.floor(inStock(x) / k))) * s.makes : 0;
+    return Math.floor((inStock(i) + viaStock) / q);
+  }));
+  for (const item of new Set(batches.map((b) => b.item))) {
+    let s = inStock(item);
+    const newestFirst = batches.filter((b) => b.item === item).reverse();
+    for (const b of newestFirst) { b.inStock = Math.min(b.made - b.sold, s); s -= b.inStock; }
+    const nb = newestFirst[0];
+    nb.matsInStock = nb.sold < nb.made && !nb.inStock && craftsFromStock(nb.need) >= 1;
+  }
+  for (const b of batches) b.status = b.sold >= b.made ? "sold" : !hasInventory || b.inStock || b.matsInStock ? "open" : "gone";
+  const relevant = new Set(cands.flatMap((c) => c.from.map(([i]) => i).concat((subs.get(c.item)?.from || []).map(([i]) => i))));
+  const leftover = [...pool].map(([i, lots]) => [i, lots.reduce((t, l) => t + l.qty, 0)])
+    .filter(([i, q]) => q > 0 && relevant.has(i) && !isVendor(i));
+  return { batches, unmatched, stock, leftover, hasInventory };
+}
+
+const PLACES = { bag: "in bags", bank: "in the bank", mail: "in the mail", auction: "on the AH" };
+const stockText = (st) => st ? Object.entries(st).map(([p, q]) => `${q} ${PLACES[p] || p}`).join(", ") : "";
+function sellNow(b) { return ITEMS[b.item] ? ahPrice(b.item) : b.lastSale; }
+
+function foundBatchRows(list) {
+  return list.map((b) => {
+    const left = b.made - b.sold, profit = b.got - b.sold * b.costEach, sell = sellNow(b), isOpen = T.openBatch === b.key;
+    const ifRest = sell != null ? b.got + left * net(sell) - b.made * b.costEach : null;
+    const used = [...b.used].map(([i, u]) => `<tr><td>${itemLink(i)}</td><td class="num">${u.qty}</td>
+      <td class="num">${gcell(u.cost / u.qty)}</td><td class="num">${gcell(u.cost)}</td></tr>`).join("");
+    return `<tr class="open" tabindex="0" data-found="${b.key}" aria-expanded="${isOpen}">
+      <td><span class="chev">›</span> <span class="small">${when(b.time)}</span></td><td>${itemLink(b.item)}</td>
+      <td class="num">${b.made}</td><td class="num">${b.sold}</td><td class="num">${left || '<span class="pos">sold out</span>'}</td>
+      <td class="num">${!left ? "" : b.inStock ? b.inStock : b.matsInStock ? '<span class="small" title="The materials are still in stock">materials</span>'
+        : b.status === "gone" ? '<span class="warn" title="Not sold and not in your bags, bank, mail or on the AH at the last upload">none</span>' : "–"}</td>
+      <td class="num">${gcell(b.costEach)}</td><td class="num">${gcell(breakEven(b.costEach), "gold")}</td>
+      <td class="num">${gcell(b.got)}</td><td class="num">${b.sold ? signed(profit) : "–"}</td>
+      <td class="num">${left && ifRest != null && b.status === "open" ? signed(ifRest) : b.sold ? signed(profit) : "–"}</td></tr>
+      ${isOpen ? `<tr class="detail"><td colspan="11"><div class="small">Bought ${when(b.time)}${b.end - b.time > 60 ? ` to ${when(b.end)}` : ""}:
+        materials for ${b.crafts} craft${b.crafts > 1 ? "s" : ""}. Vendor reagents that weren't bought are counted at the vendor price.</div>
+        <div class="inner"><table><thead><tr><th>Material used</th><th class="num">How many</th><th class="num">Paid each</th><th class="num">Total</th></tr></thead>
+        <tbody>${used}<tr class="last"><td colspan="3"><b>Batch cost</b></td><td class="num"><b>${gcell(b.cost)}</b></td></tr></tbody></table></div></td></tr>` : ""}`;
+  }).join("");
+}
+
+function foundView() {
+  const intro = '<h2 style="margin-top:4px">From your TSM purchases</h2>';
+  if (!T.data) {
+    if (T.loading) return intro + '<div class="card empty">Loading TSM data…</div>';
+    return intro + `<div class="card empty">${T.error && T.error !== "signin" ? `<span class="err">${esc(T.error)}</span><br>` : ""}
+      Batches are found in the purchases from your TSM uploads (behind the admin password).
+      <div style="margin-top:10px"><button class="btn" data-act="tsmload">Show batches from TSM</button></div></div>`;
+  }
+  const f = detectBatches(T.data);
+  if (!f || !f.batches.length) return intro + '<div class="card empty">No batches found in your TSM purchases yet.</div>';
+  const open = f.batches.filter((b) => b.status === "open").reverse(), done = f.batches.filter((b) => b.status !== "open").reverse();
+  const gone = done.filter((b) => b.status === "gone").length;
+  const head = `<thead><tr><th>Bought</th><th>Craft</th><th class="num">Made</th><th class="num">Sold</th><th class="num">Left</th>
+    <th class="num">In stock</th><th class="num">Cost each</th><th class="num">Break-even</th><th class="num">Received</th>
+    <th class="num">Profit so far</th><th class="num">If the rest sells at AH price</th></tr></thead>`;
+  const stockLine = [...new Set(open.map((b) => b.item))].map((i) =>
+    `<div class="small">${itemLink(i)} in stock now: ${stockText(f.stock[i]) || "none"}.</div>`).join("");
+  const unmatched = Object.entries(f.unmatched).map(([i, n]) => `${n} ${esc(nameOf(+i))}`).join(", ");
+  const leftover = f.leftover.map(([i, q]) => `${q} ${itemLink(i)}`).join(", ");
+  return intro + `<div class="card">${open.length ? `<table>${head}<tbody>${foundBatchRows(open)}</tbody></table>`
+      : '<div class="empty">No open batches: everything from your TSM purchases is sold or no longer in stock.</div>'}</div>
+    <div class="note">${stockLine}
+      ${leftover ? `<div class="small">Bought but not in a batch yet (waiting for the rest of a craft's materials): ${leftover}.</div>` : ""}
+      ${unmatched ? `<div class="small">Sold before the first batch found for it: ${unmatched}.</div>` : ""}
+      <div class="small">Found from purchases and sales in your TSM uploads. A batch stays open while it isn't sold out and its
+        items (or, for the newest, its materials) are in your bags, bank, mail or on the AH at the last upload; items in stock
+        count for the newest batches first. Open a row for the materials. Upload again to update.</div>
+      ${f.hasInventory ? "" : '<div class="warn">No inventory in the uploads yet: every batch that isn\'t sold out shows as open. Upload again to fix that.</div>'}</div>
+    ${done.length ? `<button class="btn" data-act="togglefinished">${T.showFinished ? "Hide" : "Show"} ${done.length} closed batch${done.length > 1 ? "es" : ""}
+        (${done.length - gone} sold out${gone ? `, ${gone} not sold but no longer in stock` : ""})</button>
+      ${T.showFinished ? `<div class="card" style="margin-top:10px"><table>${head}<tbody>${foundBatchRows(done)}</tbody></table></div>` : ""}` : ""}`;
+}
+
 // ---------- input handling ----------
 function setGold(input, apply) {
   const v = parseGold(input.value);
@@ -593,15 +767,16 @@ view.addEventListener("input", (e) => {
 });
 view.addEventListener("keydown", (e) => {
   const row = e.target.closest?.("tr.open");
-  if (row && e.target === row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(+row.dataset.open); }
+  if (row && e.target === row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggleRow(row); }
 });
 view.addEventListener("click", (e) => {
   const t = e.target;
   const row = t.closest("tr.open");
-  if (row && !t.closest("input,select,button,a")) return toggle(+row.dataset.open);
+  if (row && !t.closest("input,select,button,a")) return toggleRow(row);
   const b = t.closest("button"); if (!b) return;
   const d = b.dataset;
   if (d.sub) { T.view = d.sub; render(); }
+  else if (d.act === "togglefinished") { T.showFinished = !T.showFinished; render(); }
   else if (d.startbatch) { form.recipe = +d.startbatch; form.prices = null; tab = "batches"; render(); }
   else if (d.delbatch && confirm("Delete this batch? Its sales stay and move to the next batch.")) {
     S.batches = S.batches.filter((x) => x.id !== d.delbatch); save(); render(); }
@@ -632,6 +807,10 @@ view.addEventListener("click", (e) => {
   }
 });
 function toggle(id) { open = open === id ? null : id; render(); }
+function toggleRow(row) {
+  if (row.dataset.found) { T.openBatch = T.openBatch === row.dataset.found ? null : row.dataset.found; render(); }
+  else toggle(+row.dataset.open);
+}
 function importBackup(file) {
   file.text().then((txt) => {
     const data = JSON.parse(txt);
