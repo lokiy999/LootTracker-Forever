@@ -204,3 +204,25 @@ otherwise it's under the closed batches (sold out, or not sold but not in stock)
 `goldLogLastUpdate`), TSM's recipe list and vendor prices; uploads from before are read again once on start.
 `craft/test_craft.py` checks the new data and the save-time rule. With Lokiy's file: 13 batches (5 Green Silk Pack,
 8 Runecloth Reagent Bag), 92 bags sold matching TSM, the two 24 Nov rounds open with 24 bags in stock.
+
+## 2026-11-24: Collection page at /collection/
+
+Lokiy: a WoW Forever version of the V+ collection (collection.lokiy.dev, which syncs Lokiy's Google Sheet daily), with
+the data read from the game instead of a sheet, at forever.lokiy.dev/collection/, showing recipes, blues & epics and
+mounts & pets. Nothing under V+ was touched.
+
+`collection/build.py` reads every TSM upload from the crafting page (`~/forever-craft-data/uploads`), oldest first:
+the recipes each character knows (TSM's `crafts` with `players`), profession levels, and items in bags, bank, mail and
+the auction house. "First seen" is the first upload something was in; a character's first upload and a profession's
+first recipes count as "before tracking". Item names, quality and icons come from Wowhead Forever's tooltip data,
+cached in `~/forever-collection-data/items.json`. Output `/var/www/forever/collection/data.json`; `server/cron.sh`
+rebuilds it when an upload or the builder is newer, and hourly.
+
+`site/collection/index.html` (same style as the loot and crafting pages): Overview (profession levels, recently
+collected), Recipes (filter by profession and character), Blues & Epics (where each is held; items no longer held on
+request), Mounts & Pets. Linked from the loot page's footer (`index.html.bak-2026-11-24b` kept).
+
+With Lokiy's one TSM upload: Lokiy, 110 Tailoring recipes (Enchanting's window not opened yet, so none read), 9 blue
+and 1 epic item. Checked in a browser. Limits: worn gear isn't in TSM's file; learned mounts and pets are account-wide
+and use up their item, so they need the LootTracker Forever addon to save them (not done); Wowhead's list pages refuse
+the server, so there are no "missing" lists.
