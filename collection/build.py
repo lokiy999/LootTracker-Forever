@@ -139,16 +139,29 @@ def kind_of(tooltip):
     return None
 
 
+BINDS = {"equipped": "equip", "picked up": "pickup", "used": "use"}
+
+
+def bind_of(tooltip):
+    """"equip" (Binds when equipped), "pickup", "use", "account" or "" (doesn't bind), from Wowhead's tooltip"""
+    text = re.sub(r"<[^>]+>", " ", tooltip or "")
+    m = re.search(r"Binds when (equipped|picked up|used)", text)
+    if m:
+        return BINDS[m.group(1)]
+    return "account" if re.search(r"Binds to (Blizzard )?account|Account Bound", text, re.I) else ""
+
+
 def lookup(ids, cache_path, fetch=True):
     cache = load_json(cache_path, {})
-    todo = [i for i in ids if str(i) not in cache][:MAX_FETCH if fetch else 0]
+    # entries from before 2026-11-24 have no binding: fetched again once
+    todo = [i for i in ids if "bind" not in cache.get(str(i), {})][:MAX_FETCH if fetch else 0]
     for i in todo:
         try:
             req = urllib.request.Request(WOWHEAD.format(i), headers={"User-Agent": "lokiy-forever-collection"})
             with urllib.request.urlopen(req, timeout=20) as r:
                 d = json.load(r)
             cache[str(i)] = {"name": d.get("name") or "", "quality": d.get("quality"), "icon": d.get("icon"),
-                             "kind": kind_of(d.get("tooltip"))}
+                             "kind": kind_of(d.get("tooltip")), "bind": bind_of(d.get("tooltip"))}
         except Exception as e:  # noqa: BLE001  try again next run
             print(f"wowhead item {i}: {e}", file=sys.stderr)
         time.sleep(0.25)
@@ -247,7 +260,7 @@ def addon_part(snaps, tsm_known, cache):
                 continue
             info = cache.get(str(w["id"])) or {}
             q = w.get("q") if isinstance(w.get("q"), int) else info.get("quality")
-            if (q or 0) >= 3:
+            if (q or 0) >= 3 and info.get("bind") == "equip":  # bind on equip only (Lokiy, 2026-11-24)
                 worn.append({"slot": w.get("slot"), "id": w["id"], "quality": q, "name": info.get("name") or "", "icon": info.get("icon")})
         profs = []
         recipes = s.get("recipes") if isinstance(s.get("recipes"), dict) else {}
@@ -325,8 +338,14 @@ def build(uploads=UPLOADS, out=OUT, cache_path=CACHE, approved=APPROVED, fetch=T
         if not info:
             pending += 1
             continue
-        if (info.get("quality") or 0) < 3 and not info.get("kind"):
-            continue
+        if not info.get("kind"):  # mount and pet items always; other items blue or better and bind on equip
+            if (info.get("quality") or 0) < 3:
+                continue
+            if "bind" not in info:  # cached before bindings were kept, not fetched again yet
+                pending += 1
+                continue
+            if info["bind"] != "equip":
+                continue
         # on the account since before tracking if any character had it then, else the first date any did
         seen = None if None in it["seen"] else min(it["seen"])
         collected.append({"id": i, "firstSeen": seen, "who": it["who"], "name": info["name"], "quality": info.get("quality"), "icon": info.get("icon"),

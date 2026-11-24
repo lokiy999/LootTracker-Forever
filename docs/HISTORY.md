@@ -251,3 +251,17 @@ the server, so there are no "missing" lists.
   (`/var/www/forever/collection/index.html.bak-2026-11-24` kept).
 - Zip at forever.lokiy.dev/admin/ replaced with 0.6.0 (`LootTrackerForever.zip.bak-2026-11-24` = 0.5.1). Not run in
   game yet: Lokiy tests it. No approved upload has a snapshot yet, so the live page shows none.
+
+## 2026-11-24: Collection page, blues and epics bind on equip only
+- Lokiy: Blues & Epics lists only bind-on-equip items. `collection/build.py` keeps each item's binding from Wowhead's
+  tooltip (`bind`: equip / pickup / use / account / none) in `items.json`; entries cached before have none and are
+  fetched again once. Bags, bank, mail, auctions and worn items are filtered; mount and pet items aren't.
+- `site/collection/index.html`: says so on the tab; the top counts are "BoE blues" and "BoE epics".
+  `server/test_flow.py`: a bind-on-pickup epic in the bags isn't listed.
+
+## 2026-11-24: Collection page, blues and epics bind on equip only
+- Lokiy: Blues & Epics lists only bind-on-equip items. `collection/build.py` keeps each item's binding from Wowhead's
+  tooltip (`bind`: equip / pickup / use / account / none) in `items.json`; entries cached before have none and are
+  fetched again once. Bags, bank, mail, auctions and worn items are filtered; mount and pet items aren't.
+- `site/collection/index.html` says so on the tab; the top counts are "BoE blues" and "BoE epics".
+  `server/test_flow.py`: a bind-on-pickup epic in the bags isn't listed.

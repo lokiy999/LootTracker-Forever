@@ -164,9 +164,10 @@
       const w = worn().filter((i) => isChar(i.char) && match(`${i.name} ${i.id}`));
       const wornPart = addon().characters.some((c) => c.wornRead) ? `<h2>Worn</h2>` + table([["Item"], ["Slot"], ["Character"]],
         w.map((i) => `<tr><td>${item(i)}</td><td class="small">${SLOT[i.slot] || ""}</td><td>${who(i.char)}</td></tr>`),
-        "No worn blue or epic items match.") + `<h2>Bags, bank, mail and auctions</h2>` : "";
-      return wornPart + table([["Item"], ["Where"], ["First seen", 1]], list.map((i) => `<tr class="${i.held ? "" : "gone"}">
-        <td>${item(i)}</td><td>${where(i)}</td><td class="num">${seen(i.firstSeen)}</td></tr>`), "No blue or epic items match.");
+        "No worn bind-on-equip blue or epic items match.") + `<h2>Bags, bank, mail and auctions</h2>` : "";
+      return `<p class="note">Bind on equip only: bind-on-pickup and other soulbound items aren't listed.</p>` + wornPart
+        + table([["Item"], ["Where"], ["First seen", 1]], list.map((i) => `<tr class="${i.held ? "" : "gone"}">
+        <td>${item(i)}</td><td>${where(i)}</td><td class="num">${seen(i.firstSeen)}</td></tr>`), "No bind-on-equip blue or epic items match.");
     } },
     pets: { label: "Mounts & Pets", filters: ["gone"], render: () => {
       const a = addon(), byWho = (r) => r.who.map(who).join(", ");
@@ -231,7 +232,7 @@
     document.getElementById("updated").textContent = `${n} character${n === 1 ? "" : "s"}, ${d.uploads} TSM upload${d.uploads === 1 ? "" : "s"}, built ${new Date(d.updated * 1000).toLocaleString()}`;
     const its = items();
     document.getElementById("big").innerHTML = [[recipes().length, "Recipes known"],
-      [its.filter((i) => i.held && i.quality === 3).length, "Blue items"], [its.filter((i) => i.held && i.quality >= 4).length, "Epic items"],
+      [its.filter((i) => i.held && i.quality === 3).length, "BoE blues"], [its.filter((i) => i.held && i.quality >= 4).length, "BoE epics"],
       ...(addon().mountsRead ? [[addon().mounts.length, "Mounts learned"]] : []),
       ...(addon().petsRead ? [[addon().pets.length, "Companions"]] : []),
       [pets().filter((i) => i.held).length, "Mount & pet items"]]

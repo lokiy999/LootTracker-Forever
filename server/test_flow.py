@@ -58,21 +58,25 @@ COLLECTION = f'''["collection"] = {{ ["Player-1-Tester"] = {{ t = {NOW + 50},
 
 
 def collection_page(data):
-    """collection/build.py reads the snapshot from the uploader's newest approved upload that has one (the Wowhead files
-    approved after it have none); TSM's Silk Bandage, learned since, isn't missing any more."""
+    """Blues and epics are bind on equip only. collection/build.py reads the snapshot from the uploader's newest approved
+    upload that has one (the Wowhead files approved after it have none); TSM's Silk Bandage, learned since, isn't missing."""
     sys.path.insert(0, os.path.join(HERE, "..", "collection"))
     import build as coll
     tsm = os.path.join(data, "tsm")
     os.makedirs(tsm)
     with open(os.path.join(tsm, "tsm-2026-11-24-120000.lua"), "w", encoding="utf-8") as f:
         f.write('TradeSkillMasterDB = { ["s@Tester - Alliance - Testrealm@internalData@classKey"] = "MAGE",\n'
+                '["s@Tester - Alliance - Testrealm@internalData@bagQuantity"] = { ["i:1234"] = 1, ["i:9588"] = 1 },\n'
                 '["f@Alliance - Testrealm@internalData@crafts"] = { ["c:7928"] = { name = "Silk Bandage", profession = "First Aid",'
                 ' itemString = "i:6450", players = { Tester = true } } } }\n')
     cache = os.path.join(data, "items.json")
     with open(cache, "w", encoding="utf-8") as f:
-        json.dump({"1234": {"name": "Sword", "quality": 3, "icon": "sword", "kind": None},
-                   "16900": {"name": "Helm", "quality": 4, "icon": "helm", "kind": None}}, f)
+        json.dump({"1234": {"name": "Sword", "quality": 3, "icon": "sword", "kind": None, "bind": "equip"},
+                   "16900": {"name": "Helm", "quality": 4, "icon": "helm", "kind": None, "bind": "equip"},
+                   "2589": {"name": "Linen", "quality": 1, "icon": "cloth", "kind": None, "bind": ""},
+                   "9588": {"name": "Ring", "quality": 4, "icon": "ring", "kind": None, "bind": "pickup"}}, f)
     d = coll.build(tsm, os.path.join(data, "collection.json"), cache, os.path.join(data, "approved"), fetch=False)
+    assert [(i["id"], i["name"]) for i in d["items"]] == [(1234, "Sword")], d["items"]  # bind on pickup: not listed
     a = d["addon"]
     assert a["uploads"] == 1 and a["mountsRead"] and a["petsRead"], a
     assert [(m["spell"], m["name"], m["who"]) for m in a["mounts"]] == [(470, None, ["Tester"]), (458, "Brown Horse", ["Tester"])], a["mounts"]

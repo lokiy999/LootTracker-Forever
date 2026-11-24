@@ -6,7 +6,7 @@ from the game instead of a sheet (the V+ one, collection.lokiy.dev, syncs a Goog
 | | |
 |---|---|
 | Builder | `build.py`: reads every TSM upload in `~/forever-craft-data/uploads` (from /craft/) and the newest approved LootTracker Forever upload with a collection snapshot per uploader (`~/forever-data/approved`), writes `/var/www/forever/collection/data.json` |
-| Item data | Wowhead Forever's tooltip data (`nether.wowhead.com/forever/tooltip/item/<id>`): name, quality, icon, mount/pet; cached in `~/forever-collection-data/items.json`, only new IDs fetched |
+| Item data | Wowhead Forever's tooltip data (`nether.wowhead.com/forever/tooltip/item/<id>`): name, quality, icon, mount/pet, binding; cached in `~/forever-collection-data/items.json`, only new IDs fetched |
 | Runs | `server/cron.sh` (every 5 minutes): when a TSM upload, an approved upload or `build.py` is newer than `data.json`, and hourly |
 | By hand | `python3 collection/build.py [uploads dir] [out file] [cache file] [approved dir]` |
 | Deploy the page | copy `site/collection/index.html` to `/var/www/forever/collection/` (dated `.bak-` copy first) |
@@ -15,7 +15,7 @@ from the game instead of a sheet (the V+ one, collection.lokiy.dev, syncs a Goog
 
 - **Recipes**: every recipe TSM's `crafts` list says a character knows (`players`), per profession, with the
   character's profession levels (`playerProfessions`). TSM only learns a profession's recipes when its window is opened.
-- **Blues & Epics**: quality 3+ items in bags, bank, mail and the auction house (TSM's `*Quantity` lists). Items no
+- **Blues & Epics**: bind-on-equip quality 3+ items (binding from Wowhead's tooltip; Lokiy, 2026-11-24) in bags, bank, mail and the auction house (TSM's `*Quantity` lists). Items no
   longer held stay listed (hidden unless "Include no longer held" is ticked). Worn blues and epics come from the addon.
 - **Missing recipes**: from the addon (0.6.0+): what the profession window lists as not learned, minus recipes TSM has
   seen the character know since. Only professions whose window was opened with the addon; the old trade skill window
