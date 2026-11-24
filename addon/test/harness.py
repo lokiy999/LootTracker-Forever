@@ -308,6 +308,11 @@ C_TradeSkillUI = {IsTradeSkillLinked = function() return linked end,
   GetAllRecipeIDs = function() local t = {}; for id in pairs(recipes) do t[#t + 1] = id end; table.sort(t); return t end,
   GetRecipeInfo = function(id) local r = recipes[id]; return {recipeID = id, name = r.name, learned = r.learned} end,
   GetBaseProfessionInfo = function() return {professionName = "First Aid", skillLevel = 80, maxSkillLevel = 150} end}
+-- transmog: category -> name, collected, total; category 3 has no appearances, 4's name is secret
+tmog = {[1] = {"Head", 12, 300}, [2] = {"Shoulder", 0, 250}, [3] = {"Back", 0, 0}, [4] = {SECRET_NAME, 7, 90}}
+C_TransmogCollection = {GetCategoryInfo = function(c) return tmog[c] and tmog[c][1], false end,
+  GetCategoryCollectedCount = function(c) return tmog[c] and tmog[c][2] or 0 end,
+  GetCategoryTotal = function(c) if c > 30 then error("bad category") end; return tmog[c] and tmog[c][3] or 0 end}
 '''
 
 
@@ -332,11 +337,15 @@ def collection():
     assert got == [(40, 7385, "Cat", 2)], got
     got = [(w.slot, w.id, w.q) for w in c.worn.values()]
     assert got == [(1, 16900, 4), (5, 2586, 1)], got
-    # a new mount, the event twice: one read; new gear
+    got = [(x.cat, x.name, x.have, x.total) for x in c.transmog.values()]
+    assert got == [(1, "Head", 12, 300), (2, "Shoulder", 0, 250), (4, None, 7, 90)], got  # an error past 30: skipped
+    # a new mount, the event twice: one read; new gear; appearances learned (many events, one read)
     run('''mounts[7][3] = true; fire("NEW_MOUNT_ADDED", 7); fire("NEW_MOUNT_ADDED", 7)
-           worn[5] = {2587, 2}; fire("PLAYER_EQUIPMENT_CHANGED", 5, false)''')
-    assert lua.eval("#timers") == 2, lua.eval("#timers")
+           worn[5] = {2587, 2}; fire("PLAYER_EQUIPMENT_CHANGED", 5, false)
+           tmog[2][2] = 3; fire("TRANSMOG_COLLECTION_UPDATED"); fire("TRANSMOG_COLLECTION_UPDATED")''')
+    assert lua.eval("#timers") == 3, lua.eval("#timers")
     run("run_timers()")
+    assert [x.have for x in c.transmog.values()] == [12, 3, 7]
     assert [m.id for m in c.mounts.values()] == [6, 7, 8]
     assert [(w.slot, w.id, w.q) for w in c.worn.values()][1] == (5, 2587, 2)
     # a profession window: known and unknown; another player's linked window is ignored
@@ -375,7 +384,7 @@ def collection_old_api():
     c = db.collection["Player-1-ABC"]
     assert [(m.npc, m.spell, m.name) for m in c.mounts.values()] == [(308, 458, "Horse")]
     assert [(p.npc, p.spell) for p in c.pets.values()] == [(7385, 10673), (7553, 10709)]
-    assert c.worn is None  # no inventory call: unset, not empty
+    assert c.worn is None and c.transmog is None  # no inventory or transmog calls: unset, not empty
     fa = c.recipes["First Aid"]
     assert (fa.skill, fa.max, list(fa.known.values()), fa.unknown) == (60, 75, [3275, 3277], None), dict(fa)
 

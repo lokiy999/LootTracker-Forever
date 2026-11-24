@@ -11,7 +11,7 @@ LootTrackerForeverDB = {
   realm = "Realm", player = "Name", faction = "Alliance", class = "MAGE",
   guid = "Player-6949-00A39D60", -- the character that last saved: name + realm may not be unique on Forever
   chars = { ["Player-6949-00A39D60"] = { player = "Name", realm = "Realm", faction = "Alliance", class = "MAGE" } },
-  addon = "0.6.0", interface = 16001,
+  addon = "0.6.1", interface = 16001,
   seq = 12,                 -- last event number used
   session = 3,              -- logins so far
   settings = { ... },       -- window position; not read by the site
@@ -59,6 +59,7 @@ collection = { ["Player-6949-00A39D60"] = {
   recipes = { ["First Aid"] = { skill = 80, max = 150, t = 1795361617,
     known = { 3275 },                                                     -- recipe spell IDs
     unknown = { { id = 3276, name = "Heavy Linen Bandage" } } } },        -- not learned yet
+  transmog = { { cat = 1, name = "Head", have = 12, total = 300 } },      -- 0.6.1: appearances per category
 } }
 ```
 
@@ -67,6 +68,7 @@ collection = { ["Player-6949-00A39D60"] = {
 | `mounts` | `C_MountJournal` (collected mounts); without it `GetCompanionInfo("MOUNT")`, which gives `npc` + `spell` instead of `id` | 5 s after login, NEW_MOUNT_ADDED, COMPANION_LEARNED |
 | `pets` | `C_PetJournal` (owned pets; its filter and search decide what it lists); without it `GetCompanionInfo("CRITTER")`: `npc` + `spell` | 5 s after login, NEW_PET_ADDED, COMPANION_LEARNED |
 | `worn` | `GetInventoryItemID` / `GetInventoryItemQuality` | 5 s after login, PLAYER_EQUIPMENT_CHANGED |
+| `transmog` | 0.6.1: `C_TransmogCollection.GetCategoryCollectedCount` / `GetCategoryTotal` / `GetCategoryInfo` for categories 1-40 (Enum.TransmogCollectionType; one with no appearances is skipped). The counts are the account's, and the wardrobe's own filters may change them | 5 s after login, TRANSMOG_COLLECTION_UPDATED (5 s later) |
 | `recipes` | the open profession window: `C_TradeSkillUI` (known and unknown); without it the old trade skill calls (known only, no `unknown`) | TRADE_SKILL_SHOW, TRADE_SKILL_LIST_UPDATE |
 
 A part the game has no call for is left out (not an empty list), and so is `unknown` when only known recipes can be

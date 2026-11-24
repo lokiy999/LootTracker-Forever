@@ -274,3 +274,15 @@ Bag sale ÷ 0.95 is a price Lokiy posted at (4g 64s 55c in TSM = listed at 4g 89
 found in TSM purchases were 5% low. Now "Received" is TSM's price as it is, the Sales view shows "Listed at" (÷ 0.95
 for auction sales) and "Received", and a batch's "if the rest sells" uses the listing price. Lokiy's first batch of
 20 bags: received 78g 36s 55c (was shown as 74g 44s 72c).
+
+## 2026-11-24: Addon 0.6.1, transmog progress on the collection page
+- Lokiy asked to keep track of transmog; chosen: progress per slot. Forever has transmog (opt-in at the transmogrifiers,
+  appearances collected even with it off: fan guides, not checked in game), but whether addons can read the collection
+  isn't known until 0.6.1 runs in game.
+- `addon/LootTrackerForever/` 0.6.1: `collection[guid].transmog` = per category (1-40) `cat`, `name`, `have`, `total`
+  from `C_TransmogCollection`, guarded like the other parts (no API: left out). Read 5 s after login and 5 s after
+  TRANSMOG_COLLECTION_UPDATED (optional event). `docs/FORMAT.md` updated.
+- `server/validate.py` accepts it (counts may be 0). `collection/build.py`: `addon.transmog` from the newest snapshot
+  that has one. `site/collection/index.html`: Transmog tab (a meter per slot, account total) and an Appearances count.
+- Tests: harness (counts, a secret name, a category that errors, the event read once, none on the old API), test_flow
+  (a snapshot with transmog, a refused negative count, the build). Page checked in a browser with test data.

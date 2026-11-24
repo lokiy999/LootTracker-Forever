@@ -276,8 +276,17 @@ def addon_part(snaps, tsm_known, cache):
         chars.append({"name": who, "realm": s["realm"], "class": s["class"], "faction": s["faction"], "saved": s["t"],
                       "wornRead": s.get("worn") is not None, "worn": sorted(worn, key=lambda w: w["slot"] or 0),
                       "professions": profs})
+    # Transmog appearances are the account's: the newest character's count per category (0.6.1)
+    transmog = None
+    for s in sorted(snaps.values(), key=lambda s: s["t"]):
+        rows = [r for r in as_list(s.get("transmog")) if isinstance(r, dict) and isinstance(r.get("total"), int) and r["total"] > 0]
+        if rows:
+            transmog = {"from": s["name"], "read": s["t"],
+                        "slots": [{"cat": r.get("cat"), "name": r.get("name") or "", "have": r.get("have") or 0, "total": r["total"]}
+                                  for r in sorted(rows, key=lambda r: r.get("cat") or 0)]}
     by_name = lambda r: ((r["name"] or "").lower(), r["who"])  # noqa: E731
     return {"characters": chars, "mounts": sorted(mounts.values(), key=by_name), "pets": sorted(pets.values(), key=by_name),
+            "transmog": transmog,
             "mountsRead": any(s.get("mounts") is not None for s in snaps.values()),
             "petsRead": any(s.get("pets") is not None for s in snaps.values())}
 

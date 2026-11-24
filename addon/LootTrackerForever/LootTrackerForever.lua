@@ -4,7 +4,7 @@
 -- DRAFT: replayed against real LootProbe data, but this addon itself hasn't run in game yet (TODO 4.7).
 
 local ADDON = "LootTrackerForever"
-local VERSION = "0.6.0"
+local VERSION = "0.6.1"
 
 local issecret = issecretvalue or function() return false end
 
@@ -414,6 +414,28 @@ local function readWorn()
 	return list
 end
 
+-- 0.6.1: transmog appearances collected per category (Head, Chest, One-Handed Swords...): C_TransmogCollection.
+-- Categories are numbered from 1 (the game's Enum.TransmogCollectionType); one the game has no name or appearances
+-- for is skipped. nil = no transmog collection in this game.
+local TRANSMOG_CATEGORIES = 40
+
+local function readTransmog()
+	local tc = C_TransmogCollection
+	if not (tc and type(tc.GetCategoryCollectedCount) == "function" and type(tc.GetCategoryTotal) == "function") then
+		return nil
+	end
+	local list = {}
+	for cat = 1, TRANSMOG_CATEGORIES do
+		local total = plain(call(tc.GetCategoryTotal, cat))
+		if type(total) == "number" and total > 0 then
+			local have = plain(call(tc.GetCategoryCollectedCount, cat))
+			local name = text((call(tc.GetCategoryInfo, cat)))
+			list[#list + 1] = { cat = cat, name = name, have = type(have) == "number" and have or nil, total = total }
+		end
+	end
+	return list
+end
+
 -- The profession window that is open: its name, skill, and the recipes known and not known (spell IDs).
 -- unknown stays nil when the game only lists known recipes (the old trade skill window).
 local function readTradeSkill()
@@ -467,6 +489,7 @@ local SNAP = {
 	mounts = function() local v = readMounts(); if v then snapshot().mounts = v end end,
 	pets = function() local v = readPets(); if v then snapshot().pets = v end end,
 	worn = function() local v = readWorn(); if v then snapshot().worn = v end end,
+	transmog = function() local v = readTransmog(); if v then snapshot().transmog = v end end,
 	recipes = function()
 		local prof, r = readTradeSkill()
 		if not prof then return end
@@ -562,7 +585,7 @@ local function start()
 	makeWindow()
 	add({ type = "login", session = db.session })
 	-- Mounts, pets and gear may not be loaded at PLAYER_LOGIN yet
-	for _, what in ipairs({ "mounts", "pets", "worn" }) do snapLater(what, 5) end
+	for _, what in ipairs({ "mounts", "pets", "worn", "transmog" }) do snapLater(what, 5) end
 end
 
 local frame = CreateFrame("Frame")
@@ -582,11 +605,14 @@ local HANDLERS = {
 	NEW_PET_ADDED = function() snapLater("pets", 1) end,
 	COMPANION_LEARNED = function() snapLater("mounts", 1); snapLater("pets", 1) end,
 	PLAYER_EQUIPMENT_CHANGED = function() snapLater("worn", 1) end,
+	-- fires for every appearance learned (a whole loot window at once): one read a few seconds later
+	TRANSMOG_COLLECTION_UPDATED = function() snapLater("transmog", 5) end,
 	TRADE_SKILL_SHOW = function() snapLater("recipes", 1) end,
 	TRADE_SKILL_LIST_UPDATE = function() snapLater("recipes", 2) end,
 }
 -- Events Forever may not have: registering an unknown event raises, so these are tried one by one
 local OPTIONAL = { NEW_MOUNT_ADDED = true, NEW_PET_ADDED = true, COMPANION_LEARNED = true, PLAYER_EQUIPMENT_CHANGED = true,
+	TRANSMOG_COLLECTION_UPDATED = true,
 	TRADE_SKILL_SHOW = true, TRADE_SKILL_LIST_UPDATE = true }
 
 frame:RegisterEvent("ADDON_LOADED")

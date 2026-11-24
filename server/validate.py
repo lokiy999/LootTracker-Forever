@@ -36,12 +36,14 @@ SOURCES = {"mob", "object", "other"}
 KILLERS = {"me", "party", "pet"}
 EVENT_ID = re.compile(r"^(Player-\d+-\w+):\d+$")  # the file is shared by an account: each event names its character
 CHAR_ID = re.compile(r"^Player-\d+-\w+$")
-SNAPSHOT_KEYS = {"t", "mounts", "pets", "worn", "recipes"}
+SNAPSHOT_KEYS = {"t", "mounts", "pets", "worn", "recipes", "transmog"}
 SNAPSHOT_ROWS = {  # part -> the fields one row may have (FORMAT.md, "Collection snapshot")
     "mounts": {"id", "spell", "npc", "name"},
     "pets": {"species", "npc", "spell", "name", "n"},
     "worn": {"slot", "id", "q"},
+    "transmog": {"cat", "name", "have", "total"},  # 0.6.1
 }
+COUNTS = {"q", "have", "total"}  # fields that may be 0; every other number in a row is an ID
 PROFESSION_KEYS = {"skill", "max", "t", "known", "unknown"}
 
 
@@ -106,7 +108,10 @@ def collection(col):
             for row in as_list(snap.get(part)):
                 need(isinstance(row, dict) and set(row) <= fields, f"A collection {part} entry has the wrong shape.")
                 need(row.get("name") is None or isinstance(row["name"], str), f"A collection {part} entry has an invalid name.")
-                need(all(opt_id(v) for k, v in row.items() if k not in ("name", "q")), f"A collection {part} entry has an invalid ID.")
+                need(all(opt_id(v) for k, v in row.items() if k != "name" and k not in COUNTS), f"A collection {part} entry has an invalid ID.")
+        for row in as_list(snap.get("transmog")):
+            need(is_int(row.get("cat")) and all(row.get(k) is None or (is_int(row[k]) and 0 <= row[k] < 10 ** 6) for k in ("have", "total")),
+                 "A transmog category has an invalid count.")
         for row in as_list(snap.get("worn")):
             need(is_int(row.get("slot")) and row["slot"] <= 19 and is_int(row.get("id")), "A worn item has no valid slot or item ID.")
             need(row.get("q") is None or (is_int(row["q"]) and 0 <= row["q"] <= 8), "A worn item has an invalid quality.")

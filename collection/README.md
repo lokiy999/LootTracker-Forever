@@ -22,6 +22,8 @@ from the game instead of a sheet (the V+ one, collection.lokiy.dev, syncs a Goog
   lists known recipes only.
 - **Mounts & Pets**: learned mounts and companions from the addon's snapshot (on Forever they are learned account-wide
   and the item is used up, so TSM can't see them), then the unlearned mount/pet items in inventory.
+- **Transmog**: appearances collected per slot and weapon type, from the addon (0.6.1+), the newest character's read
+  (appearances belong to the account). Only if Forever lets addons read `C_TransmogCollection`.
 - **Addon snapshot**: `collection` in LootTracker Forever's save file (`docs/FORMAT.md`). Per uploader the newest
   approved upload that has one, per character the newest snapshot; found token by token, the events aren't parsed.
 - **First seen**: the first upload (TSM save time) something was in. What a character had in its first upload, or a

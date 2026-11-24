@@ -54,6 +54,7 @@ COLLECTION = f'''["collection"] = {{ ["Player-1-Tester"] = {{ t = {NOW + 50},
   recipes = {{ ["First Aid"] = {{ skill = 80, max = 150, t = {NOW + 50}, known = {{ 3275 }},
                  unknown = {{ {{ id = 3276, name = "Heavy Linen Bandage" }}, {{ id = 7928, name = "Silk Bandage" }} }} }},
                ["Cooking"] = {{ skill = 10, max = 75, t = {NOW + 40}, known = {{ 2538 }} }} }},
+  transmog = {{ {{ cat = 1, name = "Head", have = 12, total = 300 }}, {{ cat = 2, name = "Shoulder", have = 0, total = 250 }} }},
 }} }},'''
 
 
@@ -79,6 +80,8 @@ def collection_page(data):
     assert [(i["id"], i["name"]) for i in d["items"]] == [(1234, "Sword")], d["items"]  # bind on pickup: not listed
     a = d["addon"]
     assert a["uploads"] == 1 and a["mountsRead"] and a["petsRead"], a
+    assert a["transmog"] == {"from": "Tester", "read": NOW + 50, "slots": [{"cat": 1, "name": "Head", "have": 12, "total": 300},
+                                                                         {"cat": 2, "name": "Shoulder", "have": 0, "total": 250}]}, a["transmog"]
     assert [(m["spell"], m["name"], m["who"]) for m in a["mounts"]] == [(470, None, ["Tester"]), (458, "Brown Horse", ["Tester"])], a["mounts"]
     assert a["pets"] == [{"species": 40, "npc": 7385, "spell": None, "name": "Cat", "count": 2, "who": ["Tester"]}], a["pets"]
     (c,) = a["characters"]
@@ -185,6 +188,7 @@ def main():
             "collection not a character": save(extra=COLLECTION.replace('["Player-1-Tester"] = {', '["Mallory"] = {')),
             "unknown collection part": save(extra=COLLECTION.replace("t = ", "evil = 1, t = ")),
             "bad recipe": save(extra=COLLECTION.replace("known = { 3275 }", 'known = { "x" }')),
+            "bad transmog count": save(extra=COLLECTION.replace("have = 12", "have = -1")),
         }
         for name, body in refused.items():
             s, r = call("POST", "/upload/api/upload", body, code)
