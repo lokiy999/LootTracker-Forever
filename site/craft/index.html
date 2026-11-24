@@ -482,7 +482,10 @@ function tsmRows(kind) {
   return (T.data.ledger[kind] || []).filter((r) => r.time >= since && (!q || (kind === "expense" || kind === "income"
     ? `${r.type} ${r.otherPlayer}` : `${nameOf(itemId(r.itemString))} ${itemId(r.itemString)} ${r.otherPlayer || ""}`).toLowerCase().includes(q)));
 }
-const received = (r) => r.price * r.quantity * r.n * (r.source === "Auction" ? CUT : 1);
+// TSM saves an auction sale's price after the 5% cut (what the mail paid out), so it is already what you received;
+// the listing price is that ÷ 0.95. Vendor and trade sales have no cut.
+const received = (r) => r.price * r.quantity * r.n;
+const listedAt = (r) => (r.source === "Auction" ? Math.round(r.price / CUT) : r.price);
 
 function tsmView() {
   const head = `<div class="card pad">
@@ -523,7 +526,7 @@ function tsmView() {
   if (T.view === "items") {
     const by = {};
     const row = (id) => (by[id] ||= { id, sold: 0, got: 0, gross: 0, bought: 0, spent: 0 });
-    for (const r of sales) { const x = row(itemId(r.itemString)); x.sold += r.quantity * r.n; x.got += received(r); x.gross += r.price * r.quantity * r.n; }
+    for (const r of sales) { const x = row(itemId(r.itemString)); x.sold += r.quantity * r.n; x.got += received(r); x.gross += listedAt(r) * r.quantity * r.n; }
     for (const r of buys) { const x = row(itemId(r.itemString)); x.bought += r.quantity * r.n; x.spent += r.price * r.quantity * r.n; }
     const list = Object.values(by).sort((a, b) => b.got + b.spent - (a.got + a.spent));
     body = list.length ? `<table><thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Avg sale</th><th class="num">Received</th>
@@ -534,11 +537,11 @@ function tsmView() {
       : '<div class="empty">Nothing in this period.</div>';
   } else if (T.view === "sales" || T.view === "buys") {
     const rows = T.view === "sales" ? sales : buys, who = T.view === "sales" ? "Buyer" : "Seller";
-    body = rows.length ? `<table><thead><tr><th>When</th><th>Item</th><th class="num">How many</th><th class="num">Price each</th>
+    body = rows.length ? `<table><thead><tr><th>When</th><th>Item</th><th class="num">How many</th><th class="num">${T.view === "sales" ? "Listed at, each" : "Price each"}</th>
         <th class="num">${T.view === "sales" ? "Received" : "Total"}</th><th>${who}</th><th>Character</th><th>How</th></tr></thead><tbody>${rows.slice(0, 500).map((r) => `<tr>
         <td class="small">${when(r.time)}</td><td>${itemLink(itemId(r.itemString))}</td>
         <td class="num">${r.quantity * r.n}${r.n > 1 ? ` <span class="small">(${r.n}×${r.quantity})</span>` : ""}</td>
-        <td class="num">${gcell(r.price)}</td><td class="num">${gcell(T.view === "sales" ? received(r) : r.price * r.quantity * r.n)}</td>
+        <td class="num">${gcell(T.view === "sales" ? listedAt(r) : r.price)}</td><td class="num">${gcell(T.view === "sales" ? received(r) : r.price * r.quantity * r.n)}</td>
         <td class="small">${esc(r.otherPlayer)}</td><td>${charName(r.player)}</td><td class="small">${esc(r.source)}</td></tr>`).join("")}</tbody></table>
         ${rows.length > 500 ? `<div class="note" style="padding:0 12px">Showing the newest 500 of ${rows.length}. Use the filter to narrow it down.</div>` : ""}`
       : '<div class="empty">Nothing in this period.</div>';
@@ -558,7 +561,8 @@ function tsmView() {
       : '<div class="empty">No uploads yet.</div>';
   }
   return head + big + controls + `<div class="card">${body}</div>
-    <p class="note">From TSM's accounting. Auction sales are shown after the 5% cut; vendor and trade sales as they are.
+    <p class="note">From TSM's accounting. TSM saves auction sales after the 5% cut, so "Received" is what the mail paid out and
+      "Listed at" / "Avg sale" is that ÷ 0.95; vendor and trade sales have no cut.
       A row that was in several uploads counts once.</p>`;
 }
 
@@ -648,7 +652,7 @@ function detectBatches(d) {
       if (!left) break;
       if (b.item !== i || b.time > s.time || b.sold >= b.made) continue;
       const k = Math.min(left, b.made - b.sold);
-      b.sold += k; b.got += k * s.price * (s.source === "Auction" ? CUT : 1); b.lastSale = s.price; left -= k;
+      b.sold += k; b.got += k * s.price; b.lastSale = listedAt(s); left -= k;  // TSM's price is already after the cut
     }
     if (left && batches.some((b) => b.item === i)) unmatched[i] = (unmatched[i] || 0) + left;
   }

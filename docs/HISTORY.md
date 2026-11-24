@@ -265,3 +265,12 @@ the server, so there are no "missing" lists.
   fetched again once. Bags, bank, mail, auctions and worn items are filtered; mount and pet items aren't.
 - `site/collection/index.html` says so on the tab; the top counts are "BoE blues" and "BoE epics".
   `server/test_flow.py`: a bind-on-pickup epic in the bags isn't listed.
+
+## 2026-11-24: TSM sale prices are already after the 5% cut
+
+Checking cancel times, Claude found that TSM saves an auction sale's price after the 5% cut: every Runecloth Reagent
+Bag sale ÷ 0.95 is a price Lokiy posted at (4g 64s 55c in TSM = listed at 4g 89s), and no sale equals a posted price.
+`site/craft/index.html` took the cut off again, so received, profit and average sale on the TSM tab and the batches
+found in TSM purchases were 5% low. Now "Received" is TSM's price as it is, the Sales view shows "Listed at" (÷ 0.95
+for auction sales) and "Received", and a batch's "if the rest sells" uses the listing price. Lokiy's first batch of
+20 bags: received 78g 36s 55c (was shown as 74g 44s 72c).
