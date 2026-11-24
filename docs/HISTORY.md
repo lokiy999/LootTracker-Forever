@@ -152,3 +152,15 @@ each `npc` + `g` once; hidden dungeon kills have no mob) and `totals.seen`; `kil
 Kills = `seen`, a new Looted column = the basis, the big Kills number = `totals.seen`, and the note says rates are per
 looted kill. `server/test_flow.py` checks it. Site rebuilt: 4,177 kills (was 2,449), Cave Yeti 69 / 41 looted.
 
+
+## 2026-11-24: Crafting profit calculator (/craft/)
+
+Lokiy's website brief, Phase 1: a calculator at forever.lokiy.dev/craft/ (`site/craft/index.html`, static, no
+backend). Recipes: Runecloth Bag, Runecloth Reagent Bag, Mageweave Reagent Bag, Red Mageweave Bag, Mooncloth and the
+Cerulean, Magenta and Viridian dyes. Bolts (5 cloth) and dyes (2 herbs + vial, made on the alt) use the cheaper of
+buying or crafting unless chosen otherwise; reagent amounts and dyes per craft are editable. Shows cost, break-even
+(cost ÷ 0.95) and profit at 5s steps after the 5% cut; prices are typed as "3g 22s 50c" and flagged after 12 hours.
+Batches tab: saved batches with the price paid per reagent, sales taken from the oldest batch first. Saved in the
+browser only, with a JSON backup. Checked against the brief's test craft (4g 36s 93c) and Red Mageweave Bag (~7s).
+Leaded and Crystal Vial vendor prices aren't known yet, so they start empty. Footer link from the loot page.
+Phases 2-3 (price import, addon upload) are not started.
