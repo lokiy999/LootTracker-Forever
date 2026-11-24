@@ -4,7 +4,7 @@
 -- DRAFT: replayed against real LootProbe data, but this addon itself hasn't run in game yet (TODO 4.7).
 
 local ADDON = "LootTrackerForever"
-local VERSION = "0.5.1"
+local VERSION = "0.6.0"
 
 local issecret = issecretvalue or function() return false end
 
@@ -313,6 +313,184 @@ local function onEncounterEnd(id, name, diff, size, ok)
 	encounterStart = nil
 end
 
+-- Collection snapshot (0.6.0): what this character has learned and wears, for forever.lokiy.dev/collection/.
+-- TSM's file has no worn gear, and on Forever mounts and companions are learned for the account (the item is used up).
+-- Forever's API may lack any of these calls: each is checked, run in pcall, and a part nothing can read stays unset.
+local MAX_NAME = 100
+local WORN_SLOTS = 19
+
+local function results(ok, ...)
+	if ok then return ... end
+end
+
+-- f(...) if f is a function and doesn't raise; nothing otherwise
+local function call(f, ...)
+	if type(f) == "function" then return results(pcall(f, ...)) end
+end
+
+local function text(v)
+	v = plain(v)
+	if type(v) ~= "string" or v == "" then return nil end
+	return v:sub(1, MAX_NAME)
+end
+
+local function number(v)
+	v = plain(v)
+	if type(v) ~= "number" or v <= 0 then return nil end
+	return v
+end
+
+local function snapshot()
+	db.collection = db.collection or {}
+	local c = db.collection[myGuid] or {}
+	db.collection[myGuid] = c
+	c.t = GetServerTime()
+	return c
+end
+
+-- The old companion list (Classic): kind "MOUNT" or "CRITTER". nil = the call doesn't exist.
+local function companions(kind)
+	local n = number(call(GetNumCompanions, kind))
+	if not n and type(GetNumCompanions) ~= "function" then return nil end
+	local list = {}
+	for i = 1, n or 0 do
+		local npc, name, spell = call(GetCompanionInfo, kind, i)
+		npc, spell = number(npc), number(spell)
+		if npc or spell then list[#list + 1] = { npc = npc, spell = spell, name = text(name) } end
+	end
+	return list
+end
+
+local function readMounts()
+	local mj = C_MountJournal
+	local ids = mj and call(mj.GetMountIDs)
+	if type(ids) == "table" and #ids > 0 then
+		local list = {}
+		for _, id in ipairs(ids) do
+			local name, spell, _, _, _, _, _, _, _, _, collected = call(mj.GetMountInfoByID, id)
+			id = number(id)
+			if id and plain(collected) == true then list[#list + 1] = { id = id, spell = number(spell), name = text(name) } end
+		end
+		return list
+	end
+	return companions("MOUNT")
+end
+
+-- One row per kind of pet, with how many are owned. The pet journal's own filter and search decide what it lists.
+local function readPets()
+	local pj = C_PetJournal
+	local total = pj and number(call(pj.GetNumPets))
+	if total then
+		local list, bySpecies = {}, {}
+		for i = 1, total do
+			local _, species, owned, _, _, _, _, name, _, _, npc = call(pj.GetPetInfoByIndex, i)
+			species = number(species)
+			if species and plain(owned) == true then
+				local p = bySpecies[species]
+				if p then
+					p.n = p.n + 1
+				else
+					p = { species = species, npc = number(npc), name = text(name), n = 1 }
+					bySpecies[species] = p
+					list[#list + 1] = p
+				end
+			end
+		end
+		return list
+	end
+	return companions("CRITTER")
+end
+
+local function readWorn()
+	if type(GetInventoryItemID) ~= "function" then return nil end
+	local list = {}
+	for slot = 1, WORN_SLOTS do
+		local id = number(call(GetInventoryItemID, "player", slot))
+		if id then
+			local q = plain(call(GetInventoryItemQuality, "player", slot))
+			list[#list + 1] = { slot = slot, id = id, q = type(q) == "number" and q or nil }
+		end
+	end
+	return list
+end
+
+-- The profession window that is open: its name, skill, and the recipes known and not known (spell IDs).
+-- unknown stays nil when the game only lists known recipes (the old trade skill window).
+local function readTradeSkill()
+	local ts = C_TradeSkillUI
+	if ts then
+		-- Another player's or a guild's recipe list isn't ours
+		for _, f in ipairs({ "IsTradeSkillLinked", "IsTradeSkillGuild", "IsNPCCrafting" }) do
+			if plain(call(ts[f])) == true then return end
+		end
+		local ids = call(ts.GetAllRecipeIDs)
+		if type(ids) == "table" and #ids > 0 then
+			local info = call(ts.GetBaseProfessionInfo)
+			if type(info) ~= "table" or not text(info.professionName) then info = call(ts.GetChildProfessionInfo) end
+			local prof, skill, max
+			if type(info) == "table" then
+				prof, skill, max = text(info.professionName), plain(info.skillLevel), plain(info.maxSkillLevel)
+			end
+			if not prof then prof, skill, max = call(ts.GetTradeSkillLine) end
+			if not text(prof) then prof, skill, max = call(GetTradeSkillLine) end
+			prof = text(prof)
+			if not prof then return end
+			local known, unknown = {}, {}
+			for _, id in ipairs(ids) do
+				id = number(id)
+				local r = id and call(ts.GetRecipeInfo, id)
+				if type(r) == "table" then
+					local learned = plain(r.learned)
+					if learned == true then known[#known + 1] = id
+					elseif learned == false then unknown[#unknown + 1] = { id = id, name = text(r.name) } end
+				end
+			end
+			return prof, { skill = number(skill), max = number(max), known = known, unknown = unknown }
+		end
+	end
+	-- The old window: known recipes only, each one's spell from its link ("|Henchant:2963|h")
+	local n = number(call(GetNumTradeSkills))
+	local prof, skill, max = call(GetTradeSkillLine)
+	prof = text(prof)
+	if not (n and prof) or plain(call(IsTradeSkillLinked)) == true then return end
+	local known = {}
+	for i = 1, n do
+		local _, kind = call(GetTradeSkillInfo, i)
+		local link = plain(call(GetTradeSkillRecipeLink, i))
+		local id = kind ~= "header" and type(link) == "string" and tonumber(link:match("|Henchant:(%d+)"))
+		if id then known[#known + 1] = id end
+	end
+	return prof, { skill = number(skill), max = number(max), known = known }
+end
+
+local SNAP = {
+	mounts = function() local v = readMounts(); if v then snapshot().mounts = v end end,
+	pets = function() local v = readPets(); if v then snapshot().pets = v end end,
+	worn = function() local v = readWorn(); if v then snapshot().worn = v end end,
+	recipes = function()
+		local prof, r = readTradeSkill()
+		if not prof then return end
+		local c = snapshot()
+		c.recipes = c.recipes or {}
+		r.t = c.t
+		c.recipes[prof] = r -- other professions keep their last scan
+	end,
+}
+
+local pendingSnap = {}
+
+-- Several events in a row (equipping a set, the recipe list loading) make one read, a moment later
+local function snapLater(what, delay)
+	if pendingSnap[what] then return end
+	pendingSnap[what] = true
+	local function run()
+		pendingSnap[what] = nil
+		local ok, err = pcall(SNAP[what])
+		if not ok then db.errors = (db.errors or 0) + 1; db.lastError = tostring(err) end
+	end
+	if C_Timer and C_Timer.After then C_Timer.After(delay, run) else run() end
+end
+
 local function makeWindow()
 	window = CreateFrame("Frame", "LootTrackerForeverWindow", UIParent, "BackdropTemplate")
 	window:SetSize(250, 62)
@@ -383,6 +561,8 @@ local function start()
 	setupPatterns()
 	makeWindow()
 	add({ type = "login", session = db.session })
+	-- Mounts, pets and gear may not be loaded at PLAYER_LOGIN yet
+	for _, what in ipairs({ "mounts", "pets", "worn" }) do snapLater(what, 5) end
 end
 
 local frame = CreateFrame("Frame")
@@ -397,14 +577,26 @@ local HANDLERS = {
 	PLAYER_TARGET_CHANGED = function() noteUnit("target") end,
 	ENCOUNTER_START = function() encounterStart = GetServerTime() end,
 	ENCOUNTER_END = onEncounterEnd,
+	-- the collection snapshot
+	NEW_MOUNT_ADDED = function() snapLater("mounts", 1) end,
+	NEW_PET_ADDED = function() snapLater("pets", 1) end,
+	COMPANION_LEARNED = function() snapLater("mounts", 1); snapLater("pets", 1) end,
+	PLAYER_EQUIPMENT_CHANGED = function() snapLater("worn", 1) end,
+	TRADE_SKILL_SHOW = function() snapLater("recipes", 1) end,
+	TRADE_SKILL_LIST_UPDATE = function() snapLater("recipes", 2) end,
 }
+-- Events Forever may not have: registering an unknown event raises, so these are tried one by one
+local OPTIONAL = { NEW_MOUNT_ADDED = true, NEW_PET_ADDED = true, COMPANION_LEARNED = true, PLAYER_EQUIPMENT_CHANGED = true,
+	TRADE_SKILL_SHOW = true, TRADE_SKILL_LIST_UPDATE = true }
 
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(_, event, ...)
 	if event == "PLAYER_LOGIN" then
 		start()
-		for e in pairs(HANDLERS) do frame:RegisterEvent(e) end
+		for e in pairs(HANDLERS) do
+			if OPTIONAL[e] then pcall(frame.RegisterEvent, frame, e) else frame:RegisterEvent(e) end
+		end
 	elseif HANDLERS[event] and db then
 		-- A boss fight must never show an error: a failed read loses that one record
 		local ok, err = pcall(HANDLERS[event], ...)

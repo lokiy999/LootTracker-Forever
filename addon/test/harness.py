@@ -290,6 +290,96 @@ def secrets():
     assert db.skipped == 1 and db.errors is None, (db.skipped, db.errors, db.lastError)
 
 
+MODERN = r'''
+mounts = {[6] = {"Brown Horse", 458, true}, [7] = {"Gray Wolf", 459, false}, [8] = {SECRET_NAME, 470, true}}
+C_MountJournal = {GetMountIDs = function() local t = {}; for id in pairs(mounts) do t[#t + 1] = id end; table.sort(t); return t end,
+  GetMountInfoByID = function(id) local m = mounts[id]; return m[1], m[2], "icon", false, true, 0, false, false, nil, false, m[3], id end}
+pets = {{"BattlePet-1", 40, true, nil, 1, false, false, "Cat", "icon", 1, 7385},
+        {"BattlePet-2", 40, true, nil, 1, false, false, "Cat", "icon", 1, 7385},
+        {nil, 41, false, nil, 1, false, false, "Owl", "icon", 1, 7553}}
+C_PetJournal = {GetNumPets = function() return #pets, 2 end, GetPetInfoByIndex = function(i) return unpack(pets[i], 1, 11) end}
+worn = {[1] = {16900, 4}, [5] = {2586, 1}, [16] = {SECRET_ID, 3}}
+GetInventoryItemID = function(_, s) return worn[s] and worn[s][1] end
+GetInventoryItemQuality = function(_, s) return worn[s] and worn[s][2] end
+recipes = {[3275] = {name = "Linen Bandage", learned = true}, [3276] = {name = "Heavy Linen Bandage", learned = false},
+           [7928] = {name = "Silk Bandage", learned = false}}
+linked = false
+C_TradeSkillUI = {IsTradeSkillLinked = function() return linked end,
+  GetAllRecipeIDs = function() local t = {}; for id in pairs(recipes) do t[#t + 1] = id end; table.sort(t); return t end,
+  GetRecipeInfo = function(id) local r = recipes[id]; return {recipeID = id, name = r.name, learned = r.learned} end,
+  GetBaseProfessionInfo = function() return {professionName = "First Aid", skillLevel = 80, maxSkillLevel = 150} end}
+'''
+
+
+def collection():
+    """The collection snapshot: mounts, pets, worn gear, recipes; read again on its events, a profession kept per scan."""
+    lua = runtime()
+    lua.execute('''SECRET_NAME, SECRET_ID = {}, {}
+      issecretvalue = function(v) return v == SECRET_NAME or v == SECRET_ID end''')
+    lua.execute(MODERN)
+    load(lua, "../LootTrackerForever/LootTrackerForever.lua")
+    run = lua.execute
+    run('fire("ADDON_LOADED", "LootTrackerForever"); fire("PLAYER_LOGIN")')
+    assert lua.eval("LootTrackerForeverDB.collection") is None  # read a moment after login, not at it
+    run("run_timers()")
+    db = lua.eval("LootTrackerForeverDB")
+    assert db.errors is None, db.lastError
+    c = db.collection["Player-1-ABC"]
+    assert c.t == lua.eval("time_now") and c.recipes is None, dict(c)
+    got = [(m.id, m.spell, m.name) for m in c.mounts.values()]
+    assert got == [(6, 458, "Brown Horse"), (8, 470, None)], got  # not collected: left out; a secret name: no name
+    got = [(p.species, p.npc, p.name, p.n) for p in c.pets.values()]
+    assert got == [(40, 7385, "Cat", 2)], got
+    got = [(w.slot, w.id, w.q) for w in c.worn.values()]
+    assert got == [(1, 16900, 4), (5, 2586, 1)], got
+    # a new mount, the event twice: one read; new gear
+    run('''mounts[7][3] = true; fire("NEW_MOUNT_ADDED", 7); fire("NEW_MOUNT_ADDED", 7)
+           worn[5] = {2587, 2}; fire("PLAYER_EQUIPMENT_CHANGED", 5, false)''')
+    assert lua.eval("#timers") == 2, lua.eval("#timers")
+    run("run_timers()")
+    assert [m.id for m in c.mounts.values()] == [6, 7, 8]
+    assert [(w.slot, w.id, w.q) for w in c.worn.values()][1] == (5, 2587, 2)
+    # a profession window: known and unknown; another player's linked window is ignored
+    run('fire("TRADE_SKILL_SHOW"); run_timers()')
+    fa = c.recipes["First Aid"]
+    assert (fa.skill, fa.max, list(fa.known.values())) == (80, 150, [3275]), dict(fa)
+    assert [(u.id, u.name) for u in fa.unknown.values()] == [(3276, "Heavy Linen Bandage"), (7928, "Silk Bandage")]
+    run('''linked = true; recipes[3276].learned = true; fire("TRADE_SKILL_SHOW"); run_timers(); linked = false
+           C_TradeSkillUI.GetBaseProfessionInfo = function() return {professionName = "Cooking", skillLevel = 1, maxSkillLevel = 75} end
+           recipes = {[2538] = {name = "Charred Wolf Meat", learned = true}}; fire("TRADE_SKILL_LIST_UPDATE"); run_timers()''')
+    assert len(fa.unknown) == 2 and list(c.recipes["Cooking"].known.values()) == [2538]  # First Aid kept
+    assert db.errors is None, db.lastError
+    # another character on the account keeps its own snapshot next to this one
+    run('''UnitGUID = function(u) if u == "player" then return "Player-1-ALT" end end
+           fire("PLAYER_LOGIN"); run_timers()''')
+    assert set(db.collection.keys()) == {"Player-1-ABC", "Player-1-ALT"} and db.collection["Player-1-ABC"].recipes
+
+
+def collection_old_api():
+    """The old companion and trade skill calls, and events the game doesn't know: still read, nothing raises."""
+    lua = runtime()
+    lua.execute('''BLOCKED = {NEW_MOUNT_ADDED = true, NEW_PET_ADDED = true, TRADE_SKILL_LIST_UPDATE = true}
+      local comp = {MOUNT = {{308, "Horse", 458}}, CRITTER = {{7385, "Cat", 10673}, {7553, "Owl", 10709}}}
+      GetNumCompanions = function(k) return #comp[k] end
+      GetCompanionInfo = function(k, i) return unpack(comp[k][i]) end
+      local skills = {{"Bandages", "header"}, {"Linen Bandage", "trivial", "|cffffffff|Henchant:3275|h[Linen Bandage]|h|r"},
+                      {"Wool Bandage", "easy", "|cffffffff|Henchant:3277|h[Wool Bandage]|h|r"}}
+      GetNumTradeSkills = function() return #skills end
+      GetTradeSkillLine = function() return "First Aid", 60, 75 end
+      GetTradeSkillInfo = function(i) return skills[i][1], skills[i][2] end
+      GetTradeSkillRecipeLink = function(i) return skills[i][3] end''')
+    load(lua, "../LootTrackerForever/LootTrackerForever.lua")
+    lua.execute('fire("ADDON_LOADED", "LootTrackerForever"); fire("PLAYER_LOGIN"); run_timers(); fire("TRADE_SKILL_SHOW"); run_timers()')
+    db = lua.eval("LootTrackerForeverDB")
+    assert db.errors is None, db.lastError
+    c = db.collection["Player-1-ABC"]
+    assert [(m.npc, m.spell, m.name) for m in c.mounts.values()] == [(308, 458, "Horse")]
+    assert [(p.npc, p.spell) for p in c.pets.values()] == [(7385, 10673), (7553, 10709)]
+    assert c.worn is None  # no inventory call: unset, not empty
+    fa = c.recipes["First Aid"]
+    assert (fa.skill, fa.max, list(fa.known.values()), fa.unknown) == (60, 75, [3275, 3277], None), dict(fa)
+
+
 def probe():
     lua = runtime()
     lua.execute('LootProbeDB = {log = {{e = "old"}}}')
@@ -311,6 +401,8 @@ if __name__ == "__main__":
     gathering()
     characters()
     secrets()
+    collection()
+    collection_old_api()
     probe()
-    print("ok: tracker, gathering, characters, secret values, probe")
+    print("ok: tracker, gathering, characters, secret values, collection, collection on the old API, probe")
     sys.exit(0)

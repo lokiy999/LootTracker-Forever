@@ -45,6 +45,46 @@ def save(player="Tester", start=1, extra=""):
 '''.encode()
 
 
+# The addon's collection snapshot as the game writes it (docs/FORMAT.md): First Aid from the profession journal (known
+# and unknown), Cooking from the old window (known only)
+COLLECTION = f'''["collection"] = {{ ["Player-1-Tester"] = {{ t = {NOW + 50},
+  mounts = {{ {{ id = 6, spell = 458, name = "Brown Horse" }}, {{ id = 8, spell = 470 }} }},
+  pets = {{ {{ species = 40, npc = 7385, name = "Cat", n = 2 }} }},
+  worn = {{ {{ slot = 16, id = 1234, q = 3 }}, {{ slot = 5, id = 2589, q = 1 }}, {{ slot = 1, id = 16900, q = 4 }} }},
+  recipes = {{ ["First Aid"] = {{ skill = 80, max = 150, t = {NOW + 50}, known = {{ 3275 }},
+                 unknown = {{ {{ id = 3276, name = "Heavy Linen Bandage" }}, {{ id = 7928, name = "Silk Bandage" }} }} }},
+               ["Cooking"] = {{ skill = 10, max = 75, t = {NOW + 40}, known = {{ 2538 }} }} }},
+}} }},'''
+
+
+def collection_page(data):
+    """collection/build.py reads the snapshot from the uploader's newest approved upload that has one (the Wowhead files
+    approved after it have none); TSM's Silk Bandage, learned since, isn't missing any more."""
+    sys.path.insert(0, os.path.join(HERE, "..", "collection"))
+    import build as coll
+    tsm = os.path.join(data, "tsm")
+    os.makedirs(tsm)
+    with open(os.path.join(tsm, "tsm-2026-11-24-120000.lua"), "w", encoding="utf-8") as f:
+        f.write('TradeSkillMasterDB = { ["s@Tester - Alliance - Testrealm@internalData@classKey"] = "MAGE",\n'
+                '["f@Alliance - Testrealm@internalData@crafts"] = { ["c:7928"] = { name = "Silk Bandage", profession = "First Aid",'
+                ' itemString = "i:6450", players = { Tester = true } } } }\n')
+    cache = os.path.join(data, "items.json")
+    with open(cache, "w", encoding="utf-8") as f:
+        json.dump({"1234": {"name": "Sword", "quality": 3, "icon": "sword", "kind": None},
+                   "16900": {"name": "Helm", "quality": 4, "icon": "helm", "kind": None}}, f)
+    d = coll.build(tsm, os.path.join(data, "collection.json"), cache, os.path.join(data, "approved"), fetch=False)
+    a = d["addon"]
+    assert a["uploads"] == 1 and a["mountsRead"] and a["petsRead"], a
+    assert [(m["spell"], m["name"], m["who"]) for m in a["mounts"]] == [(470, None, ["Tester"]), (458, "Brown Horse", ["Tester"])], a["mounts"]
+    assert a["pets"] == [{"species": 40, "npc": 7385, "spell": None, "name": "Cat", "count": 2, "who": ["Tester"]}], a["pets"]
+    (c,) = a["characters"]
+    assert (c["name"], c["realm"], c["class"], c["wornRead"]) == ("Tester", "Testrealm", "MAGE", True), c
+    assert [(w["slot"], w["id"], w["name"], w["quality"]) for w in c["worn"]] == [(1, 16900, "Helm", 4), (16, 1234, "Sword", 3)], c["worn"]
+    profs = {p["name"]: p for p in c["professions"]}
+    assert profs["First Aid"]["missing"] == [{"spell": 3276, "name": "Heavy Linen Bandage"}], profs
+    assert (profs["First Aid"]["known"], profs["First Aid"]["skill"], profs["Cooking"]["missing"]) == (1, 80, None), profs
+
+
 def wowhead(version=16001, t=None):
     """The shape of a real +Wowhead_Looter.lua: sessions of events, the zones in wlUnit and wlObject."""
     return f'''
@@ -137,6 +177,10 @@ def main():
             "unknown key": save(extra='["evil"] = 1,'),
             "bad craft": save().replace(b'type = "got", item = 1234, count = 1, who = "Bob"', b'type = "made", item = 1234, count = 0'),
             "bad skill": save().replace(b'src = "object", obj = 1731', b'src = "object", obj = 1731, how = "gather", skill = -2'),
+            "bad worn slot": save(extra=COLLECTION.replace("slot = 16", "slot = 30")),
+            "collection not a character": save(extra=COLLECTION.replace('["Player-1-Tester"] = {', '["Mallory"] = {')),
+            "unknown collection part": save(extra=COLLECTION.replace("t = ", "evil = 1, t = ")),
+            "bad recipe": save(extra=COLLECTION.replace("known = { 3275 }", 'known = { "x" }')),
         }
         for name, body in refused.items():
             s, r = call("POST", "/upload/api/upload", body, code)
@@ -152,9 +196,10 @@ def main():
         assert s == 200, r
         assert os.path.exists(os.path.join(data, "rebuild-requested"))
 
-        # The same events again (not cleared) plus one new corpse: the new upload's old events count once
-        s, r = call("POST", "/upload/api/upload", save(start=1), code)
-        assert s == 200, r
+        # The same events again (not cleared) plus one new corpse: the new upload's old events count once.
+        # This one has the addon's collection snapshot (0.6.0).
+        s, r = call("POST", "/upload/api/upload", save(start=1, extra=COLLECTION), code)
+        assert s == 200 and r["summary"]["collection"] == 1, r
         uid2 = call("GET", "/admin/api/list")[1]["queue"][0]["id"]
         assert call("GET", f"/admin/api/preview?id={uid2}")[1]["known"] == 13
         assert call("POST", "/admin/api/approve", {"id": uid2})[0] == 200
@@ -184,6 +229,7 @@ def main():
         uid5 = call("GET", "/admin/api/list")[1]["queue"][0]["id"]
         assert call("POST", "/admin/api/approve", {"id": uid5})[0] == 200
 
+        collection_page(data)
         out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(data, "loot.json")
         subprocess.run([sys.executable, os.path.join(HERE, "build_site.py"), data, out], check=True)
         with open(out, encoding="utf-8") as f:
@@ -275,7 +321,7 @@ def main():
         assert (swarm["seen"], swarm["kills"], swarm["name"]) == (1, 0, "Silithid Swarm"), swarm
         hog = next(m for m in d["mobs"] if m["id"] == 448)
         assert hog["seen"] > hog["kills"] and d["totals"]["seen"] == sum(m["seen"] for m in d["mobs"]), (hog, d["totals"])
-        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs, empty realm, battlegrounds, kills seen")
+        print("ok: refusals, review, approve, duplicate events, site build, instances, gathering, crafting, 0.5.0 repair, quick runs, empty realm, battlegrounds, kills seen, collection snapshot")
     finally:
         srv.terminate()
         srv.wait()

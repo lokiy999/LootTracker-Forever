@@ -226,3 +226,28 @@ With Lokiy's one TSM upload: Lokiy, 110 Tailoring recipes (Enchanting's window n
 and 1 epic item. Checked in a browser. Limits: worn gear isn't in TSM's file; learned mounts and pets are account-wide
 and use up their item, so they need the LootTracker Forever addon to save them (not done); Wowhead's list pages refuse
 the server, so there are no "missing" lists.
+
+## 2026-11-24: Addon 0.6.0, collection snapshot for the collection page
+- `addon/LootTrackerForever/` 0.6.0: a per-character `collection` table (`docs/FORMAT.md`, "Collection snapshot"):
+  learned mounts (`C_MountJournal`, else the old companion list), owned companions (`C_PetJournal`, else the old list),
+  worn items (slots 1-19, item and quality) and the open profession's recipes, known and not known (`C_TradeSkillUI`;
+  the old trade skill window gives known ones only). Read 5 s after login, on NEW_MOUNT_ADDED / NEW_PET_ADDED /
+  COMPANION_LEARNED, PLAYER_EQUIPMENT_CHANGED, TRADE_SKILL_SHOW and TRADE_SKILL_LIST_UPDATE. Every call is checked and run
+  in pcall, events Forever doesn't know are skipped, a part the game can't read stays unset, another player's linked
+  recipe list is ignored.
+- `server/validate.py` accepts `collection` (checked field by field) and counts it in the summary. `server/test_flow.py`:
+  an upload with a snapshot, four refusals, and the collection build from it.
+- `addon/test/harness.py`: new `collection` (modern API: secret names, events read once, professions kept per scan, a
+  second character) and `collection_old_api` (old calls, unknown events) tests. lupa isn't on the server: the harness
+  ran on the PC (`pip install --target` into a temp folder).
+- `collection/build.py`: per uploader the newest approved upload that has a `collection` (`~/forever-data/approved`),
+  found token by token without parsing the megabytes of events (about 2 s for a 5.5 MB upload), newest snapshot per
+  character. data.json gets `addon`: learned mounts and companions for the account, per character worn blues and epics
+  and the recipes not learned (minus any TSM has seen since). `server/cron.sh` also rebuilds after an approval.
+  (`build.py.bak-2026-11-24`, `cron.sh.bak-2026-11-24` kept.)
+- `site/collection/index.html`: new tab Missing recipes (per profession: skill, known, not learned); Blues & Epics shows
+  worn items first; Mounts & Pets lists the learned ones before the unlearned items; mounts and companions counted at the
+  top. Without addon data each says how to get it. Checked in a browser with test data. Deployed
+  (`/var/www/forever/collection/index.html.bak-2026-11-24` kept).
+- Zip at forever.lokiy.dev/admin/ replaced with 0.6.0 (`LootTrackerForever.zip.bak-2026-11-24` = 0.5.1). Not run in
+  game yet: Lokiy tests it. No approved upload has a snapshot yet, so the live page shows none.

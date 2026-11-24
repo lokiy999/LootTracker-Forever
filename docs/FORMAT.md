@@ -11,12 +11,13 @@ LootTrackerForeverDB = {
   realm = "Realm", player = "Name", faction = "Alliance", class = "MAGE",
   guid = "Player-6949-00A39D60", -- the character that last saved: name + realm may not be unique on Forever
   chars = { ["Player-6949-00A39D60"] = { player = "Name", realm = "Realm", faction = "Alliance", class = "MAGE" } },
-  addon = "0.5.1", interface = 16001,
+  addon = "0.6.0", interface = 16001,
   seq = 12,                 -- last event number used
   session = 3,              -- logins so far
   settings = { ... },       -- window position; not read by the site
   stats = { ... },          -- the current character's window totals, worked out from its events; not read by the site
   events = { ... },         -- oldest first
+  collection = { ... },     -- 0.6.0: per character, what it has learned and wears (below)
 }
 ```
 
@@ -42,6 +43,35 @@ Every event has `id` (`<guid>:seq`, unique, so an event in two uploads counts on
 Wowhead by ID. `copper` is the source's full amount, before any group split.
 
 Converted Wowhead files add `via = "wowhead"` and `converted` (what was skipped) at the top, and `char` on each event.
+
+## Collection snapshot (0.6.0)
+
+`collection` is keyed by character ID, like `chars`, and each character's entry is replaced part by part whenever the
+addon reads it again. It's for forever.lokiy.dev/collection/: TSM's file has no worn gear, and on Forever mounts and
+companions are learned for the whole account (the item is used up), so neither is in TSM's bags.
+
+```lua
+collection = { ["Player-6949-00A39D60"] = {
+  t = 1795361617,           -- last time any part was read
+  mounts = { { id = 6, spell = 458, name = "Brown Horse" } },             -- learned: C_MountJournal (id = mount ID)
+  pets = { { species = 40, npc = 7385, name = "Cat", n = 2 } },           -- owned, one row per kind: C_PetJournal
+  worn = { { slot = 1, id = 16900, q = 4 } },                             -- equipped: inventory slot 1-19, item, quality
+  recipes = { ["First Aid"] = { skill = 80, max = 150, t = 1795361617,
+    known = { 3275 },                                                     -- recipe spell IDs
+    unknown = { { id = 3276, name = "Heavy Linen Bandage" } } } },        -- not learned yet
+} }
+```
+
+| part | read | when |
+|---|---|---|
+| `mounts` | `C_MountJournal` (collected mounts); without it `GetCompanionInfo("MOUNT")`, which gives `npc` + `spell` instead of `id` | 5 s after login, NEW_MOUNT_ADDED, COMPANION_LEARNED |
+| `pets` | `C_PetJournal` (owned pets; its filter and search decide what it lists); without it `GetCompanionInfo("CRITTER")`: `npc` + `spell` | 5 s after login, NEW_PET_ADDED, COMPANION_LEARNED |
+| `worn` | `GetInventoryItemID` / `GetInventoryItemQuality` | 5 s after login, PLAYER_EQUIPMENT_CHANGED |
+| `recipes` | the open profession window: `C_TradeSkillUI` (known and unknown); without it the old trade skill calls (known only, no `unknown`) | TRADE_SKILL_SHOW, TRADE_SKILL_LIST_UPDATE |
+
+A part the game has no call for is left out (not an empty list), and so is `unknown` when only known recipes can be
+read. Each profession keeps its last scan until its window is opened again; another player's linked recipe list is
+ignored. Events Forever doesn't have are skipped. A name that is a secret value is left out.
 
 ## How the site counts a kill
 

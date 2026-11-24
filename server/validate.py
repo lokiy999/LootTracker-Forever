@@ -30,11 +30,19 @@ MIN_TIME = 1767225600               # 2026-01-01: earlier timestamps are wrong
 FUTURE_SLACK = 2 * 86400
 
 TOP_KEYS = {"format", "game", "realm", "player", "guid", "chars", "faction", "class", "addon", "interface", "seq", "session",
-            "settings", "events", "stats", "skipped", "errors", "lastError", "via", "converted"}
+            "settings", "events", "stats", "skipped", "errors", "lastError", "via", "converted", "collection"}
 EVENT_TYPES = {"loot", "kill", "boss", "got", "won", "made", "login"}
 SOURCES = {"mob", "object", "other"}
 KILLERS = {"me", "party", "pet"}
 EVENT_ID = re.compile(r"^(Player-\d+-\w+):\d+$")  # the file is shared by an account: each event names its character
+CHAR_ID = re.compile(r"^Player-\d+-\w+$")
+SNAPSHOT_KEYS = {"t", "mounts", "pets", "worn", "recipes"}
+SNAPSHOT_ROWS = {  # part -> the fields one row may have (FORMAT.md, "Collection snapshot")
+    "mounts": {"id", "spell", "npc", "name"},
+    "pets": {"species", "npc", "spell", "name", "n"},
+    "worn": {"slot", "id", "q"},
+}
+PROFESSION_KEYS = {"skill", "max", "t", "known", "unknown"}
 
 
 class Refused(Exception):
@@ -81,6 +89,37 @@ def character(db, guid):
     if isinstance(c, dict) and isinstance(c.get("player"), str) and isinstance(c.get("realm"), str):
         return f"{c['player']}-{realm_of(c['realm'], guid)}"
     return guid
+
+
+def opt_id(v):
+    return v is None or (is_int(v) and v > 0)
+
+
+def collection(col):
+    """0.6.0: per character, its learned mounts and pets, worn items and recipes. -> how many characters it has."""
+    need(isinstance(col, dict) or col == [], "The collection data has the wrong shape.")
+    for guid, snap in (col.items() if isinstance(col, dict) else []):
+        need(isinstance(guid, str) and CHAR_ID.match(guid), "The collection data doesn't belong to a character.")
+        need(isinstance(snap, dict) and set(snap) <= SNAPSHOT_KEYS, "A character's collection data has the wrong shape.")
+        need(opt_id(snap.get("t")), "A character's collection data has an invalid time.")
+        for part, fields in SNAPSHOT_ROWS.items():
+            for row in as_list(snap.get(part)):
+                need(isinstance(row, dict) and set(row) <= fields, f"A collection {part} entry has the wrong shape.")
+                need(row.get("name") is None or isinstance(row["name"], str), f"A collection {part} entry has an invalid name.")
+                need(all(opt_id(v) for k, v in row.items() if k not in ("name", "q")), f"A collection {part} entry has an invalid ID.")
+        for row in as_list(snap.get("worn")):
+            need(is_int(row.get("slot")) and row["slot"] <= 19 and is_int(row.get("id")), "A worn item has no valid slot or item ID.")
+            need(row.get("q") is None or (is_int(row["q"]) and 0 <= row["q"] <= 8), "A worn item has an invalid quality.")
+        recipes = snap.get("recipes")
+        need(recipes is None or isinstance(recipes, (dict, list)), "A character's recipes have the wrong shape.")
+        for prof, p in (recipes.items() if isinstance(recipes, dict) else []):
+            need(isinstance(prof, str) and isinstance(p, dict) and set(p) <= PROFESSION_KEYS, "A profession's recipes have the wrong shape.")
+            need(all(opt_id(p.get(k)) for k in ("skill", "max", "t")), "A profession has an invalid skill level.")
+            need(all(is_int(r) and r > 0 for r in as_list(p.get("known"))), "A known recipe has an invalid ID.")
+            for r in as_list(p.get("unknown")):
+                need(isinstance(r, dict) and set(r) <= {"id", "name"} and is_int(r.get("id")) and r["id"] > 0
+                     and (r.get("name") is None or isinstance(r["name"], str)), "An unknown recipe has the wrong shape.")
+    return len(col)
 
 
 def wowhead(top):
@@ -173,13 +212,14 @@ def summarize(text, converted_out=None):
         elif kind in ("got", "won"):
             need(is_int(e.get("item")) and e["item"] > 0, "A loot line has no valid item ID.")
     need(corpses or items or bosses or kills, "The file has no loot data yet.")
+    snapshots = collection(db["collection"]) if db.get("collection") is not None else 0
     if via_wowhead and converted_out:
         with open(converted_out, "w", encoding="utf-8") as f:
             f.write(to_lua(db))
     return {"format": db["format"], "characters": sorted(chars), "corpses": corpses, "items": items, "kills": kills,
             "bosses": bosses, "events": sum(kinds.values()), "eventTypes": kinds,
             "addons": [str(db.get("addon"))[:20]], "from": min(times), "to": max(times), "values": nodes,
-            "skipped": db.get("skipped") or 0, "via": db.get("via")}
+            "skipped": db.get("skipped") or 0, "via": db.get("via"), "collection": snapshots}
 
 
 def main():

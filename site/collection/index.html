@@ -72,8 +72,9 @@
   <p class="note" id="about">Read from the game, not typed in: recipes, profession levels and items in bags, bank, mail and
     the auction house come from the TradeSkillMaster file uploaded on the <a href="/craft/">crafting page</a>. TSM learns a
     profession's recipes when its window is opened, and the bank when it's visited. "First seen" is the first upload
-    something was in; what was already there in a character's first upload has no date. Worn gear isn't in TSM's file, and
-    learned mounts and pets need an update of the LootTracker Forever addon, so those aren't shown yet.</p>
+    something was in; what was already there in a character's first upload has no date. Learned mounts and pets, worn gear
+    and recipes not learned yet come from the LootTracker Forever addon (0.6.0 or later), from each character's newest
+    approved upload: it reads them at login, when one is learned or gear changes, and when a profession window opens.</p>
   <footer>Item and spell details from <a href="https://www.wowhead.com/forever">Wowhead</a>. Not affiliated with Blizzard.
     <a href="/">Loot</a> · <a href="/craft/">Crafting profit</a></footer>
 </div>
@@ -87,6 +88,20 @@
   const PLACE = { bag: "bags", bank: "bank", mail: "mail", auction: "auction house" };
   const short = (n) => n.split(" ")[0]; // TSM writes "Name Realm"
   const charColor = {};
+  const SLOT = { 1: "Head", 2: "Neck", 3: "Shoulder", 4: "Shirt", 5: "Chest", 6: "Waist", 7: "Legs", 8: "Feet", 9: "Wrist",
+    10: "Hands", 11: "Finger", 12: "Finger", 13: "Trinket", 14: "Trinket", 15: "Back", 16: "Main hand", 17: "Off hand",
+    18: "Ranged", 19: "Tabard" };
+  const addon = () => data.addon || { characters: [], mounts: [], pets: [] };
+  const isChar = (n) => !char || short(n) === short(char); // TSM and the addon may name a character differently
+  const day = (t) => t ? new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+  // A mount links to its spell; a pet to its creature (the pet journal's companion ID) or its spell
+  const mountLink = (m) => m.spell ? `<a href="${WOWHEAD}/spell=${m.spell}">${esc(m.name || `mount ${m.spell}`)}</a>`
+    : m.npc ? `<a href="${WOWHEAD}/npc=${m.npc}">${esc(m.name || `mount ${m.npc}`)}</a>` : esc(m.name || `mount ${m.id}`);
+  const petLink = (p) => p.npc ? `<a href="${WOWHEAD}/npc=${p.npc}">${esc(p.name || `pet ${p.npc}`)}</a>`
+    : p.spell ? `<a href="${WOWHEAD}/spell=${p.spell}">${esc(p.name || `pet ${p.spell}`)}</a>` : esc(p.name || `pet ${p.species}`);
+  const missing = () => addon().characters.flatMap((c) => c.professions.flatMap((p) =>
+    (p.missing || []).map((r) => ({ ...r, prof: p.name, char: c.name }))));
+  const worn = () => addon().characters.flatMap((c) => c.worn.map((w) => ({ ...w, char: c.name })));
   const who = (n) => `<span style="color:${charColor[n] || "inherit"}">${esc(short(n))}</span>`;
   const item = (i) => `<a class="q${i.quality ?? 1}" href="${WOWHEAD}/item=${i.id}">${esc(i.name || `item ${i.id}`)}</a>`;
   const spell = (r) => `<a href="${WOWHEAD}/spell=${r.spell}">${esc(r.name || `spell ${r.spell}`)}</a>`;
@@ -124,22 +139,50 @@
           "Nothing new since tracking started. New recipes and items show here after the next TSM upload.")}`;
     } },
     recipes: { label: "Recipes", filters: ["prof", "char"], render: () => {
-      const list = recipes().filter((r) => (!prof || r.prof === prof) && (!char || r.char === char) && match(`${r.name} ${r.spell} ${r.prof}`))
+      const list = recipes().filter((r) => (!prof || r.prof === prof) && isChar(r.char) && match(`${r.name} ${r.spell} ${r.prof}`))
         .sort((a, b) => a.prof.localeCompare(b.prof) || a.name.localeCompare(b.name));
       return table([["Recipe"], ["Profession"], ["Character"], ["First seen", 1]], list.map((r) => `<tr><td>${spell(r)}</td>
         <td>${esc(r.prof)}</td><td>${who(r.char)}</td><td class="num">${seen(r.firstSeen)}</td></tr>`), "No recipes match.");
     } },
+    missing: { label: "Missing recipes", filters: ["prof", "char"], render: () => {
+      const profs = addon().characters.flatMap((c) => c.professions.map((p) => ({ ...p, char: c.name })))
+        .filter((p) => (!prof || p.name === prof) && isChar(p.char));
+      if (!profs.length) return `<div class="card"><div class="empty">No profession read yet. With LootTracker Forever 0.6.0 or
+        later, open each profession window once in game, then upload the addon's file.</div></div>`;
+      const list = missing().filter((r) => (!prof || r.prof === prof) && isChar(r.char) && match(`${r.name} ${r.spell} ${r.prof}`))
+        .sort((a, b) => a.prof.localeCompare(b.prof) || a.name.localeCompare(b.name));
+      return `<div class="profs">${profs.map((p) => `<div class="prof">
+          <div class="top"><b>${esc(p.name)}</b><span class="lvl">${p.skill ?? "?"}${p.max ? ` / ${p.max}` : ""}</span></div>
+          <div class="small">${who(p.char)} · ${p.known} known · ${p.missing ? `${p.missing.length} not learned` : "the game only lists known recipes here"}
+            · read ${day(p.read)}</div></div>`).join("")}</div><h2>Not learned yet</h2>`
+        + table([["Recipe"], ["Profession"], ["Character"]], list.map((r) => `<tr><td>${spell(r)}</td>
+          <td>${esc(r.prof)}</td><td>${who(r.char)}</td></tr>`), "Nothing missing that matches.");
+    } },
     items: { label: "Blues & Epics", filters: ["char", "gone"], render: () => {
-      const list = items().filter((i) => (gone || i.held) && (!char || i.who[char]) && match(`${i.name} ${i.id}`))
+      const list = items().filter((i) => (gone || i.held) && (!char || Object.keys(i.who).some(isChar)) && match(`${i.name} ${i.id}`))
         .sort((a, b) => (b.quality - a.quality) || a.name.localeCompare(b.name));
-      return table([["Item"], ["Where"], ["First seen", 1]], list.map((i) => `<tr class="${i.held ? "" : "gone"}">
+      const w = worn().filter((i) => isChar(i.char) && match(`${i.name} ${i.id}`));
+      const wornPart = addon().characters.some((c) => c.wornRead) ? `<h2>Worn</h2>` + table([["Item"], ["Slot"], ["Character"]],
+        w.map((i) => `<tr><td>${item(i)}</td><td class="small">${SLOT[i.slot] || ""}</td><td>${who(i.char)}</td></tr>`),
+        "No worn blue or epic items match.") + `<h2>Bags, bank, mail and auctions</h2>` : "";
+      return wornPart + table([["Item"], ["Where"], ["First seen", 1]], list.map((i) => `<tr class="${i.held ? "" : "gone"}">
         <td>${item(i)}</td><td>${where(i)}</td><td class="num">${seen(i.firstSeen)}</td></tr>`), "No blue or epic items match.");
     } },
     pets: { label: "Mounts & Pets", filters: ["gone"], render: () => {
+      const a = addon(), byWho = (r) => r.who.map(who).join(", ");
       const list = pets().filter((i) => (gone || i.held) && match(`${i.name} ${i.id}`));
-      return `<p class="note">Mounts and companions on Forever are learned for the whole account and the item is used up, so
-        the game data here only has the ones still waiting in bags, bank or mail. The learned ones come with an update of the
-        LootTracker Forever addon.</p>` + table([["Item"], ["Kind"], ["Where"], ["First seen", 1]], list.map((i) => `<tr class="${i.held ? "" : "gone"}">
+      const mounts = a.mounts.filter((m) => match(`${m.name} ${m.spell || ""} ${m.id || ""}`));
+      const comps = a.pets.filter((p) => match(`${p.name} ${p.npc || ""} ${p.species || ""}`));
+      const learned = a.mountsRead || a.petsRead
+        ? `<h2>Learned mounts (${a.mounts.length})</h2>` + table([["Mount"], ["Seen on", 1]], mounts.map((m) =>
+            `<tr><td>${mountLink(m)}</td><td class="num">${byWho(m)}</td></tr>`), a.mountsRead ? "No learned mounts match." : "The game didn't list mounts.")
+          + `<h2>Companions (${a.pets.length})</h2>` + table([["Companion"], ["Owned", 1], ["Seen on", 1]], comps.map((p) =>
+            `<tr><td>${petLink(p)}</td><td class="num">${p.count}</td><td class="num">${byWho(p)}</td></tr>`),
+            a.petsRead ? "No companions match." : "The game didn't list companions.")
+        : `<p class="note">Learned mounts and companions show here after an upload from LootTracker Forever 0.6.0 or later.</p>`;
+      return learned + `<h2>Not learned yet</h2><p class="note">Mounts and companions on Forever are learned for the whole
+        account and the item is used up; these are the items still waiting in bags, bank or mail.</p>`
+        + table([["Item"], ["Kind"], ["Where"], ["First seen", 1]], list.map((i) => `<tr class="${i.held ? "" : "gone"}">
         <td>${item(i)}</td><td>${i.kind === "mount" ? "Mount" : "Pet"}</td><td>${where(i)}</td><td class="num">${seen(i.firstSeen)}</td></tr>`),
         "No unlearned mount or pet items in bags, bank or mail.");
     } },
@@ -149,10 +192,11 @@
     const t = TABS[tab], f = t.filters || [];
     if (!f.length && tab === "overview") return "";
     const opts = (vals, cur, all, label = (v) => v) => `<option value="">${all}</option>` + vals.map((v) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(label(v))}</option>`).join("");
-    const profs = [...new Set(recipes().map((r) => r.prof))].sort();
+    const profs = [...new Set([...recipes().map((r) => r.prof), ...addon().characters.flatMap((c) => c.professions.map((p) => p.name))])].sort();
+    const chars = [...new Map([...data.characters, ...addon().characters].map((c) => [short(c.name), c.name])).values()];
     return `<input id="q" type="search" placeholder="Filter by name or ID" aria-label="Filter" value="${esc(term)}">`
       + (f.includes("prof") ? `<select id="prof" aria-label="Profession">${opts(profs, prof, "All professions")}</select>` : "")
-      + (f.includes("char") && data.characters.length > 1 ? `<select id="char" aria-label="Character">${opts(data.characters.map((c) => c.name), char, "All characters", short)}</select>` : "")
+      + (f.includes("char") && chars.length > 1 ? `<select id="char" aria-label="Character">${opts(chars, char, "All characters", short)}</select>` : "")
       + (f.includes("gone") ? `<label class="chk"><input type="checkbox" id="gone"${gone ? " checked" : ""}> Include no longer held</label>` : "");
   }
 
@@ -181,13 +225,15 @@
 
   fetch("data.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
     data = d;
-    d.characters.forEach((c) => { charColor[c.name] = CLASS[c.class] || ""; });
+    [...d.characters, ...addon().characters].forEach((c) => { charColor[c.name] = CLASS[c.class] || ""; });
     if (TABS[location.hash.slice(1)]) tab = location.hash.slice(1);
     const n = d.characters.length;
     document.getElementById("updated").textContent = `${n} character${n === 1 ? "" : "s"}, ${d.uploads} TSM upload${d.uploads === 1 ? "" : "s"}, built ${new Date(d.updated * 1000).toLocaleString()}`;
     const its = items();
     document.getElementById("big").innerHTML = [[recipes().length, "Recipes known"],
       [its.filter((i) => i.held && i.quality === 3).length, "Blue items"], [its.filter((i) => i.held && i.quality >= 4).length, "Epic items"],
+      ...(addon().mountsRead ? [[addon().mounts.length, "Mounts learned"]] : []),
+      ...(addon().petsRead ? [[addon().pets.length, "Companions"]] : []),
       [pets().filter((i) => i.held).length, "Mount & pet items"]]
       .map(([v, l]) => `<div class="bigstat"><div class="n">${v.toLocaleString()}</div><div class="l">${l}</div></div>`).join("");
     render();

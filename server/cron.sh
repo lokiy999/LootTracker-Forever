@@ -37,10 +37,10 @@ if [ -e "$CRAFT/craft.db" ] && [ ! -e "$CTODAY" ]; then
 	ls -1t "$BACKUPS"/craft-*.tar.gz | tail -n +15 | xargs -r rm -f
 fi
 
-# The collection page (collection/): rebuilt when a TSM upload or the builder is newer than its data, and hourly so
-# items Wowhead didn't answer for are tried again
+# The collection page (collection/): rebuilt when a TSM upload, an approved LootTracker Forever upload (its collection
+# snapshot) or the builder is newer than its data, and hourly so items Wowhead didn't answer for are tried again
 COLL=/var/www/forever/collection/data.json
-if [ -d "$CRAFT/uploads" ] && { [ ! -e "$COLL" ] || [ -n "$(find "$CRAFT/uploads" /home/lokiy/forever/collection/build.py -newer "$COLL" -print -quit)" ] ||
+if [ -d "$CRAFT/uploads" ] && { [ ! -e "$COLL" ] || [ -n "$(find "$CRAFT/uploads" "$DATA/approved" /home/lokiy/forever/collection/build.py -newer "$COLL" -print -quit 2>/dev/null)" ] ||
 	[ -n "$(find "$COLL" -mmin +60)" ]; }; then
 	python3 /home/lokiy/forever/collection/build.py >>"$LOG" 2>&1 || echo "$(date -u '+%F %T') collection build failed" >>"$LOG"
 fi
