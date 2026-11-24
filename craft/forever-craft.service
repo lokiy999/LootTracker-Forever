@@ -1,0 +1,19 @@
+[Unit]
+Description=Crafting calculator recipes and TSM data for forever.lokiy.dev/craft/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lokiy
+WorkingDirectory=/home/lokiy/forever/craft
+ExecStart=/usr/bin/python3 /home/lokiy/forever/craft/server.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lokiy/forever-craft-data
+
+[Install]
+WantedBy=multi-user.target

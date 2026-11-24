@@ -26,6 +26,12 @@
   .tab { flex: 1 0 auto; border: 0; background: transparent; color: var(--muted); font: 500 .95rem Inter, sans-serif;
     padding: 9px 14px; border-radius: 8px; cursor: pointer; }
   .tab[aria-selected="true"] { background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  nav.subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0 10px; }
+  nav.subtabs .tab { flex: 0 0 auto; padding: 6px 12px; font-size: .88rem; }
+  .big { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 16px 0 4px; }
+  .bigstat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; }
+  .bigstat .n { font: 700 1.35rem Cinzel, Georgia, serif; color: var(--accent); line-height: 1.2; }
+  .bigstat .l { color: var(--muted); font-size: .84rem; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
   .pad { padding: 14px 16px; }
   table { width: 100%; border-collapse: collapse; font-size: .92rem; }
@@ -44,13 +50,16 @@
   .pos { color: var(--good); } .neg { color: var(--bad); } .gold { color: var(--gold); }
   .small { color: var(--faint); font-size: .8rem; }
   .warn { color: var(--gold); font-size: .82rem; }
+  .err { color: var(--bad); font-size: .88rem; }
+  .ok { color: var(--good); font-size: .88rem; }
   .note { color: var(--muted); font-size: .85rem; margin: 12px 2px; }
   .empty { padding: 26px; text-align: center; color: var(--muted); }
   .chev { display: inline-block; width: 1em; color: var(--faint); transition: transform .15s; }
   tr.open[aria-expanded="true"] .chev { transform: rotate(90deg); }
   input, select, button { font: inherit; color: var(--text); }
-  input[type=text], input[type=number], input[type=date], select {
+  input[type=text], input[type=number], input[type=date], input[type=search], select {
     background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font-size: .88rem; }
+  input[type=file] { font-size: .85rem; color: var(--muted); }
   input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   input.gin { width: 112px; text-align: right; font-family: var(--mono); font-size: .84rem; }
   input.gin.bad { border-color: var(--bad); }
@@ -58,6 +67,7 @@
   button.btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px;
     cursor: pointer; font-size: .88rem; }
   button.btn:hover { border-color: var(--accent); }
+  button.btn:disabled { opacity: .5; cursor: default; }
   button.primary { background: #1d3550; border-color: #2d5784; }
   button.link { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: .8rem; padding: 2px 4px; }
   button.link:hover { color: var(--bad); }
@@ -68,7 +78,8 @@
     color: var(--muted); margin-left: 6px; vertical-align: 1px; }
   .pill.ah { color: var(--accent); } .pill.craft { color: var(--good); } .pill.vendor { color: var(--gold); }
   tr.be td { box-shadow: inset 0 1px 0 var(--gold); }
-  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; align-items: center; }
+  code { font-family: var(--mono); font-size: .8rem; color: var(--muted); word-break: break-all; }
   footer { color: var(--faint); font-size: .85rem; margin-top: 22px; text-align: center; }
   [hidden] { display: none !important; }
 </style>
@@ -78,72 +89,38 @@
   <header>
     <div class="crest">WoW Forever · EU Normal · Horde</div>
     <h1>Crafting Profit</h1>
-    <p class="sub">Cost per craft, break-even and profit after the 5% auction house cut. Everything is saved in this browser only.</p>
+    <p class="sub">Cost per craft, break-even and profit after the 5% auction house cut. Prices and batches are saved in this browser.</p>
   </header>
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-tab="calc">Calculator</button>
     <button class="tab" role="tab" data-tab="prices">Prices</button>
     <button class="tab" role="tab" data-tab="batches">Batches</button>
+    <button class="tab" role="tab" data-tab="tsm">TSM</button>
   </nav>
   <p class="warn" id="stale" hidden></p>
-  <main id="view"></main>
-  <footer>Prices move within hours: update them from a fresh AH scan before you craft.
-    Not affiliated with Blizzard. <a href="/">Loot site</a></footer>
+  <main id="view"><div class="empty">Loading recipes…</div></main>
+  <footer>Recipes from <a href="https://www.wowhead.com/forever">Wowhead Forever</a>. Prices move within hours: update
+    them from a fresh AH scan before you craft. Not affiliated with Blizzard. <a href="/">Loot site</a></footer>
 </div>
+<script>const whTooltips = { colorLinks: true, iconizeLinks: false, renameLinks: true };</script>
+<script src="https://wow.zamimg.com/js/tooltips.js" async></script>
 <script>
 "use strict";
 const KEY = "forever-craft-v1";
 const CUT = 0.95;
 const DEFAULT_AT = "2026-11-22T09:00:00Z";
 const STALE_MS = 12 * 3600 * 1000;
-
-// Prices in copper. AH defaults are the 22 Nov morning snapshot (21 Nov where 22 Nov had none).
-// craft.from lists reagents per craft; "makes" is how many items one craft gives.
-const ITEMS = {
-  mageweave:       { name: "Mageweave Cloth", group: "Cloth", ah: 400 },
-  bolt_mageweave:  { name: "Bolt of Mageweave", group: "Cloth", ah: 2142, sub: true,
-                     craft: { by: "Tailoring", makes: 1, from: { mageweave: 5 } } },
-  runecloth:       { name: "Runecloth", group: "Cloth", ah: 629 },
-  bolt_runecloth:  { name: "Bolt of Runecloth", group: "Cloth", ah: 3047, sub: true,
-                     craft: { by: "Tailoring", makes: 1, from: { runecloth: 5 } } },
-  felcloth:        { name: "Felcloth", group: "Cloth", ah: 6400 },
-  rugged_leather:  { name: "Rugged Leather", group: "Leather and herbs", ah: 2070 },
-  frilled_lichen:  { name: "Frilled Lichen", group: "Leather and herbs", ah: 2700 },
-  rosecap:         { name: "Rosecap", group: "Leather and herbs", ah: 1297 },
-  stranglevine:    { name: "Stranglevine", group: "Leather and herbs", ah: 2569 },
-  cerulean_dye:    { name: "Cerulean Dye", group: "Dyes", ah: 5887, sub: true,
-                     craft: { by: "Alchemy alt", makes: 1, from: { frilled_lichen: 2, empty_vial: 1 } },
-                     note: "1 dye per craft, confirmed in game (Wowhead says 2)." },
-  magenta_dye:     { name: "Magenta Dye", group: "Dyes", ah: 2690, sub: true,
-                     craft: { by: "Alchemy alt", makes: 1, from: { rosecap: 2, leaded_vial: 1 } },
-                     note: "Dyes per craft not confirmed yet: change it here once you've seen it in game." },
-  viridian_dye:    { name: "Viridian Dye", group: "Dyes", ah: 5700, sub: true,
-                     craft: { by: "Alchemy alt", makes: 1, from: { stranglevine: 2, crystal_vial: 1 } },
-                     note: "Dyes per craft not confirmed yet: change it here once you've seen it in game." },
-  rune_thread:     { name: "Rune Thread", group: "Vendor", vendor: 4500 },
-  heavy_silken_thread: { name: "Heavy Silken Thread", group: "Vendor", vendor: 1800 },
-  red_dye:         { name: "Red Dye", group: "Vendor", vendor: 50 },
-  empty_vial:      { name: "Empty Vial", group: "Vendor", vendor: 4 },
-  leaded_vial:     { name: "Leaded Vial", group: "Vendor", vendor: null },
-  crystal_vial:    { name: "Crystal Vial", group: "Vendor", vendor: null },
-  runecloth_bag:   { name: "Runecloth Bag", group: "Products", ah: 48000,
-                     craft: { by: "Tailoring 215", makes: 1, from: { bolt_runecloth: 5, rugged_leather: 2, rune_thread: 1, magenta_dye: 4, cerulean_dye: 2 } },
-                     note: "14-slot bag." },
-  runecloth_reagent_bag: { name: "Runecloth Reagent Bag", group: "Products", ah: 34596,
-                     craft: { by: "Tailoring 215", makes: 1, from: { bolt_runecloth: 5, rugged_leather: 2, rune_thread: 1, viridian_dye: 1 } },
-                     note: "14-slot reagent bag, BoE. Price from 21 Nov." },
-  mageweave_reagent_bag: { name: "Mageweave Reagent Bag", group: "Products", ah: 24500,
-                     craft: { by: "Tailoring 190", makes: 1, from: { bolt_mageweave: 4, heavy_silken_thread: 2, magenta_dye: 1, cerulean_dye: 1 } },
-                     note: "12-slot reagent bag, BoE. Reagent amounts were worked out from a batch of 5: check them in game. Price from 21 Nov." },
-  red_mageweave_bag: { name: "Red Mageweave Bag", group: "Products", ah: 15250,
-                     craft: { by: "Tailoring ~200", makes: 1, from: { bolt_mageweave: 5, heavy_silken_thread: 2, red_dye: 2 } } },
-  mooncloth:       { name: "Mooncloth", group: "Products", ah: 526887,
-                     craft: { by: "Tailoring 230", makes: 1, from: { felcloth: 2 } },
-                     note: "Needs a moonwell and has a 3.96-day cooldown, so this is the profit per cooldown. Price from 21 Nov." },
-};
-const RECIPES = ["runecloth_bag", "runecloth_reagent_bag", "mageweave_reagent_bag", "red_mageweave_bag", "mooncloth",
-  "cerulean_dye", "magenta_dye", "viridian_dye"];
+const WOWHEAD = "https://www.wowhead.com/forever";
 const GROUPS = ["Cloth", "Leather and herbs", "Dyes", "Vendor", "Products"];
+// Prices and batches saved before recipes moved to the database used names instead of item IDs
+const OLD_IDS = { mageweave: 4338, bolt_mageweave: 4339, runecloth: 14047, bolt_runecloth: 14048, felcloth: 14256,
+  rugged_leather: 8170, frilled_lichen: 249399, rosecap: 249424, stranglevine: 249274, cerulean_dye: 249409,
+  magenta_dye: 249430, viridian_dye: 249431, rune_thread: 14341, heavy_silken_thread: 8343, red_dye: 2604,
+  empty_vial: 3371, leaded_vial: 3372, crystal_vial: 8925, runecloth_bag: 14046, runecloth_reagent_bag: 254079,
+  mageweave_reagent_bag: 254035, red_mageweave_bag: 10051, mooncloth: 14342 };
+
+// Filled from /craft/api/recipes: ITEMS[id] = { id, name, group, vendor, ah, sub, craft: { spell, makes, from, ... } }
+let ITEMS = {}, RECIPES = [];
 
 // ---------- gold ----------
 const fmt = (c) => {
@@ -175,20 +152,28 @@ const signed = (c) => gcell(c, c > 0 ? "pos" : c < 0 ? "neg" : "");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const today = () => new Date().toLocaleDateString("en-CA");
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const nameOf = (id) => ITEMS[id]?.name ?? `item ${id}`;
+const itemLink = (id) => `<a href="${WOWHEAD}/item=${id}" data-wh-rename-link="${ITEMS[id] ? "false" : "true"}">${esc(nameOf(id))}</a>`;
+const refreshTooltips = () => window.$WowheadPower?.refreshLinks?.();
 
 // ---------- state ----------
-const fresh = () => ({ prices: {}, vendor: {}, mode: {}, qty: {}, makes: {}, ladder: {}, batches: [], sales: [] });
+const fresh = () => ({ prices: {}, vendor: {}, mode: {}, ladder: {}, batches: [], sales: [] });
 let S = load();
 function load() {
-  try { return Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { return fresh(); }
+  let s;
+  try { s = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { s = fresh(); }
+  const fix = (k) => OLD_IDS[k] ?? k;
+  for (const m of ["prices", "vendor", "mode", "ladder"]) s[m] = Object.fromEntries(Object.entries(s[m]).map(([k, v]) => [fix(k), v]));
+  for (const b of s.batches) { b.recipe = fix(b.recipe); b.prices = Object.fromEntries(Object.entries(b.prices || {}).map(([k, v]) => [fix(k), v])); }
+  for (const x of s.sales) x.recipe = fix(x.recipe);
+  delete s.qty; delete s.makes;  // amounts are fixed now: they come from the recipe database
+  return s;
 }
 function save() { localStorage.setItem(KEY, JSON.stringify(S)); }
 
 const ahPrice = (id) => id in S.prices ? S.prices[id].ah : (ITEMS[id].ah ?? null);
 const ahAt = (id) => id in S.prices ? S.prices[id].at : (ITEMS[id].ah != null ? DEFAULT_AT : null);
 const vendorPrice = (id) => id in S.vendor ? S.vendor[id] : (ITEMS[id].vendor ?? null);
-const qtyOf = (rid, id) => S.qty[rid]?.[id] ?? ITEMS[rid].craft.from[id];
-const makesOf = (id) => S.makes[id] ?? ITEMS[id].craft.makes;
 const modeOf = (id) => S.mode[id] || "auto";
 
 // ---------- cost engine ----------
@@ -209,14 +194,14 @@ function unitCost(id) {
   return { cost: best.cost, src: best.src, opts, missing: best.missing };
 }
 function recipeCost(id) {
+  const c = ITEMS[id].craft;
   let total = 0; const lines = [], missing = new Set();
-  for (const rid of Object.keys(ITEMS[id].craft.from)) {
-    const q = qtyOf(id, rid), u = unitCost(rid);
+  for (const [rid, q] of c.from) {
+    const u = unitCost(rid);
     total += q * u.cost; u.missing.forEach((m) => missing.add(m));
     lines.push({ id: rid, q, u });
   }
-  const makes = makesOf(id);
-  return { total, makes, each: total / makes, lines, missing: [...missing] };
+  return { total, makes: c.makes, each: total / c.makes, lines, missing: [...missing] };
 }
 function summary(id) {
   const r = recipeCost(id), sell = ahPrice(id);
@@ -228,20 +213,25 @@ function summary(id) {
 let tab = "calc", open = null;
 const view = document.getElementById("view");
 const tabs = document.getElementById("tabs");
-tabs.addEventListener("click", (e) => { const b = e.target.closest(".tab"); if (b) { tab = b.dataset.tab; render(); } });
+tabs.addEventListener("click", (e) => {
+  const b = e.target.closest(".tab"); if (!b || !RECIPES.length) return;
+  tab = b.dataset.tab; render();
+  if (tab === "tsm" && !T.data && !T.loading) loadTSM();
+});
 
 function render() {
   for (const b of tabs.children) b.setAttribute("aria-selected", b.dataset.tab === tab);
   const stale = Object.keys(ITEMS).filter((id) => ahAt(id) && Date.now() - new Date(ahAt(id)) > STALE_MS);
   const el = document.getElementById("stale");
-  el.hidden = !stale.length;
+  el.hidden = !stale.length || tab === "tsm";
   el.textContent = stale.length ? `${stale.length} AH price${stale.length > 1 ? "s are" : " is"} more than 12 hours old. Update them on the Prices tab before trusting the profit.` : "";
-  view.innerHTML = tab === "calc" ? calcView() : tab === "prices" ? pricesView() : batchesView();
+  view.innerHTML = tab === "calc" ? calcView() : tab === "prices" ? pricesView() : tab === "batches" ? batchesView() : tsmView();
   if (tab === "batches") updateBatchCost();
+  if (tab === "tsm") refreshTooltips();
 }
 
 function missingNote(missing) {
-  return missing.length ? `<div class="warn">No price for ${missing.map((m) => esc(ITEMS[m].name)).join(", ")}: counted as 0.</div>` : "";
+  return missing.length ? `<div class="warn">No price for ${missing.map((m) => esc(nameOf(m))).join(", ")}: counted as 0.</div>` : "";
 }
 
 function calcView() {
@@ -249,7 +239,7 @@ function calcView() {
     const s = summary(id), isOpen = open === id;
     const margin = s.profit != null && s.sell ? ` <span class="small">${(s.profit / s.sell * 100).toFixed(0)}%</span>` : "";
     return `<tr class="open" tabindex="0" data-open="${id}" aria-expanded="${isOpen}">
-      <td><span class="chev">›</span> ${esc(ITEMS[id].name)}${s.r.missing.length ? ' <span class="warn">⚠</span>' : ""}</td>
+      <td><span class="chev">›</span> ${esc(nameOf(id))}${s.r.missing.length ? ' <span class="warn" title="A reagent has no price">⚠</span>' : ""}</td>
       <td class="num">${gcell(s.r.each)}</td><td class="num">${gcell(s.be, "gold")}</td>
       <td class="num">${gcell(s.sell)}</td><td class="num">${s.profit == null ? "–" : signed(s.profit)}${margin}</td></tr>
       ${isOpen ? `<tr class="detail"><td colspan="5">${detail(id, s)}</td></tr>` : ""}`;
@@ -268,27 +258,27 @@ function srcPill(src) {
 }
 
 function detail(id, s) {
-  const it = ITEMS[id], r = s.r;
+  const it = ITEMS[id], c = it.craft, r = s.r;
   const lines = r.lines.map((l) => {
     const sub = ITEMS[l.id].sub;
     const alts = l.u.opts.map((o) => `${o.src.toLowerCase()} ${fmt(o.cost)}`).join(" · ");
-    const choose = sub ? `<select data-mode="${l.id}" aria-label="How to get ${esc(ITEMS[l.id].name)}">
+    const choose = sub ? `<select data-mode="${l.id}" aria-label="How to get ${esc(nameOf(l.id))}">
         ${[["auto", "Cheapest"], ["buy", "Buy"], ["craft", "Craft"]].map(([v, t]) =>
           `<option value="${v}"${modeOf(l.id) === v ? " selected" : ""}>${t}</option>`).join("")}</select>` : "";
-    return `<tr><td>${esc(ITEMS[l.id].name)}</td>
-      <td class="num"><input class="qin" type="number" min="0" step="1" value="${l.q}" data-qty="${id}:${l.id}" aria-label="Amount of ${esc(ITEMS[l.id].name)}"></td>
+    return `<tr><td>${esc(nameOf(l.id))}</td><td class="num">${l.q}</td>
       <td class="num">${gcell(l.u.cost)}</td><td>${srcPill(l.u.src)} ${choose}<div class="small">${alts || "no price set"}</div></td>
       <td class="num">${gcell(l.q * l.u.cost)}</td></tr>`;
   }).join("");
-  const makes = `<label class="field">Items per craft <input class="qin" type="number" min="1" step="1" value="${r.makes}" data-makes="${id}"></label>`;
-  return `<div class="small">${esc(it.craft.by)}${it.note ? ` · ${esc(it.note)}` : ""}</div>
+  const facts = [`${esc(c.profession)}${c.skill ? ` ${esc(c.skill)}` : ""}`, `makes ${c.makes}`, c.cooldown ? `cooldown ${esc(c.cooldown)}` : "",
+    `<a href="${WOWHEAD}/spell=${c.spell}">recipe on Wowhead</a>`, `source: ${esc(c.source)}`].filter(Boolean).join(" · ");
+  return `<div class="small">${facts}</div>${c.note ? `<div class="small">${esc(c.note)}</div>` : ""}
     <div class="inner"><table>
       <thead><tr><th>Reagent</th><th class="num">Amount</th><th class="num">Each</th><th>Source</th><th class="num">Total</th></tr></thead>
       <tbody>${lines}
       <tr class="last"><td colspan="4"><b>Cost per craft</b>${r.makes > 1 ? ` <span class="small">(${r.makes} items, ${fmt(r.each)} each)</span>` : ""}</td>
         <td class="num"><b>${gcell(r.total)}</b></td></tr></tbody></table></div>
     ${missingNote(r.missing)}
-    <div class="row" style="margin-top:12px">${makes}
+    <div class="row" style="margin-top:12px">
       <label class="field">AH price <input class="gin" type="text" value="${s.sell == null ? "" : fmt(s.sell)}" data-ah="${id}"></label>
       <button class="btn" data-startbatch="${id}">Start a batch of this</button></div>
     <h2>Profit at each listing price</h2>${ladder(id, s)}`;
@@ -333,12 +323,13 @@ function age(at) {
 function pricesView() {
   const body = GROUPS.map((g) => {
     const ids = Object.keys(ITEMS).filter((id) => ITEMS[id].group === g);
+    if (!ids.length) return "";
     return `<tr class="sec"><td colspan="3">${g === "Products" ? "Products (what you sell them for)" : g}</td></tr>` + ids.map((id) => {
       const isVendor = g === "Vendor";
       const val = isVendor ? vendorPrice(id) : ahPrice(id);
-      return `<tr><td>${esc(ITEMS[id].name)}</td>
+      return `<tr><td>${esc(nameOf(id))}</td>
         <td class="num"><input class="gin" type="text" value="${val == null ? "" : fmt(val)}" placeholder="${isVendor ? "not set" : "none"}"
-          ${isVendor ? `data-vendor="${id}"` : `data-ah="${id}"`} aria-label="${esc(ITEMS[id].name)} ${isVendor ? "vendor" : "AH"} price"></td>
+          ${isVendor ? `data-vendor="${id}"` : `data-ah="${id}"`} aria-label="${esc(nameOf(id))} ${isVendor ? "vendor" : "AH"} price"></td>
         <td>${isVendor ? '<span class="small">vendor</span>' : age(ahAt(id))}</td></tr>`;
     }).join("");
   }).join("");
@@ -358,7 +349,7 @@ function pricesView() {
 // ---------- batches ----------
 function allocate() {
   const order = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.created - b.created);
-  const batches = [...S.batches].sort(order).map((b) => ({ ...b, sold: 0, got: 0 }));
+  const batches = [...S.batches].filter((b) => ITEMS[b.recipe]).sort(order).map((b) => ({ ...b, sold: 0, got: 0 }));
   const unmatched = [];
   for (const s of [...S.sales].sort(order)) {
     let left = s.qty;
@@ -373,30 +364,31 @@ function allocate() {
   return { batches, unmatched };
 }
 
-let form = { recipe: RECIPES[0], prices: null };
+let form = { recipe: null, prices: null };
 function batchPrices(recipe) {
-  return Object.fromEntries(Object.keys(ITEMS[recipe].craft.from).map((rid) => [rid, Math.round(unitCost(rid).cost)]));
+  return Object.fromEntries(ITEMS[recipe].craft.from.map(([rid]) => [rid, Math.round(unitCost(rid).cost)]));
 }
 function batchesView() {
+  form.recipe ??= RECIPES[0];
   if (!form.prices || form.pricesFor !== form.recipe) { form.prices = batchPrices(form.recipe); form.pricesFor = form.recipe; }
-  const opt = (sel) => RECIPES.map((id) => `<option value="${id}"${id === sel ? " selected" : ""}>${esc(ITEMS[id].name)}</option>`).join("");
-  const mats = Object.keys(ITEMS[form.recipe].craft.from).map((rid) => `<tr><td>${esc(ITEMS[rid].name)}</td>
-      <td class="num">× ${qtyOf(form.recipe, rid)}</td>
-      <td class="num"><input class="gin" type="text" value="${fmt(form.prices[rid])}" data-bprice="${rid}" aria-label="Price paid for ${esc(ITEMS[rid].name)}"></td></tr>`).join("");
+  const opt = (sel) => RECIPES.map((id) => `<option value="${id}"${id === sel ? " selected" : ""}>${esc(nameOf(id))}</option>`).join("");
+  const mats = ITEMS[form.recipe].craft.from.map(([rid, q]) => `<tr><td>${esc(nameOf(rid))}</td>
+      <td class="num">× ${q}</td>
+      <td class="num"><input class="gin" type="text" value="${fmt(form.prices[rid])}" data-bprice="${rid}" aria-label="Price paid for ${esc(nameOf(rid))}"></td></tr>`).join("");
   const { batches, unmatched } = allocate();
   const brows = batches.map((b) => {
     const left = b.qty - b.sold, profit = b.got - b.sold * b.costEach, sell = ahPrice(b.recipe);
     const ifRest = sell != null ? b.got + left * net(sell) - b.qty * b.costEach : null;
-    return `<tr><td>${esc(b.date)}</td><td>${esc(ITEMS[b.recipe].name)}${b.note ? `<div class="small">${esc(b.note)}</div>` : ""}</td>
+    return `<tr><td>${esc(b.date)}</td><td>${esc(nameOf(b.recipe))}${b.note ? `<div class="small">${esc(b.note)}</div>` : ""}</td>
       <td class="num">${b.qty}</td><td class="num">${b.sold}</td><td class="num">${left || '<span class="pos">sold out</span>'}</td>
       <td class="num">${gcell(b.costEach)}</td><td class="num">${gcell(breakEven(b.costEach), "gold")}</td>
       <td class="num">${gcell(b.got)}</td><td class="num">${b.sold ? signed(profit) : "–"}</td>
       <td class="num">${left && ifRest != null ? signed(ifRest) : b.sold ? signed(profit) : "–"}</td>
       <td><button class="link" data-delbatch="${b.id}" aria-label="Delete batch">✕</button></td></tr>`;
   }).join("");
-  const srows = [...S.sales].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.created - a.created)).map((s) => {
+  const srows = [...S.sales].filter((s) => ITEMS[s.recipe]).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.created - a.created)).map((s) => {
     const um = unmatched.find((u) => u.id === s.id);
-    return `<tr><td>${esc(s.date)}</td><td>${esc(ITEMS[s.recipe].name)}${um ? ` <span class="warn">${um.left} not in any batch</span>` : ""}</td>
+    return `<tr><td>${esc(s.date)}</td><td>${esc(nameOf(s.recipe))}${um ? ` <span class="warn">${um.left} not in any batch</span>` : ""}</td>
       <td class="num">${s.qty}</td><td class="num">${gcell(s.price)}</td><td class="num">${gcell(s.qty * net(s.price))}</td>
       <td><button class="link" data-delsale="${s.id}" aria-label="Delete sale">✕</button></td></tr>`;
   }).join("");
@@ -430,18 +422,142 @@ function batchesView() {
       <th class="num">Profit so far</th><th class="num">If the rest sells at AH price</th><th></th></tr></thead><tbody>${brows}</tbody></table>`
       : '<div class="empty">No batches yet. Save one above when you buy materials.</div>'}</div>
     <h2>Sales</h2>
-    <div class="card">${S.sales.length ? `<table><thead><tr><th>Date</th><th>Craft</th><th class="num">How many</th>
+    <div class="card">${srows ? `<table><thead><tr><th>Date</th><th>Craft</th><th class="num">How many</th>
       <th class="num">Price each</th><th class="num">Received (after 5%)</th><th></th></tr></thead><tbody>${srows}</tbody></table>`
       : '<div class="empty">No sales logged yet.</div>'}</div>`;
 }
 function batchCostEach() {
-  const total = Object.entries(form.prices).reduce((t, [rid, p]) => t + qtyOf(form.recipe, rid) * (p || 0), 0);
-  return total / makesOf(form.recipe);
+  const c = ITEMS[form.recipe].craft;
+  return c.from.reduce((t, [rid, q]) => t + q * (form.prices[rid] || 0), 0) / c.makes;
 }
 function updateBatchCost() {
   const el = document.getElementById("bCost"); if (!el) return;
   const each = batchCostEach(), qty = +document.getElementById("bQty").value || 0;
   el.innerHTML = `Cost each ${gcell(each)} · break-even ${gcell(breakEven(each), "gold")} · whole batch ${gcell(each * qty)}`;
+}
+
+// ---------- TSM ----------
+// The server keeps every row of TSM's accounting from every upload, each row once (n = times it happened).
+const T = { data: null, loading: false, error: null, msg: null, view: "items", period: "all", q: "", busy: false };
+const PERIODS = { all: ["All time", Infinity], d30: ["Last 30 days", 30], d7: ["Last 7 days", 7], d1: ["Last 24 hours", 1] };
+const SUBVIEWS = { items: "By item", sales: "Sales", buys: "Purchases", other: "Cancelled and expired", uploads: "Uploads" };
+const itemId = (s) => +String(s || "").split(":")[1] || 0;
+const when = (t) => new Date(t * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const charName = (n) => esc(String(n || "").split(" ")[0]);
+
+async function loadTSM() {
+  T.loading = true; T.error = null; if (tab === "tsm") render();
+  try {
+    const r = await fetch("/craft/api/tsm", { cache: "no-store" });
+    if (r.status === 401) throw new Error("signin");
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `The server answered ${r.status}.`);
+    T.data = await r.json();
+  } catch (e) {
+    T.error = e.message === "signin" ? "signin" : e.message || "Couldn't reach the server.";
+  }
+  T.loading = false; if (tab === "tsm") render();
+}
+
+async function uploadTSM() {
+  const file = document.getElementById("tsmFile").files[0];
+  if (!file) { T.msg = { err: "Choose your TradeSkillMaster.lua first." }; return render(); }
+  T.busy = true; T.msg = null; render();
+  try {
+    const r = await fetch("/craft/api/tsm/upload", { method: "POST", body: file });
+    const body = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error("Sign in with the admin password first (reload the page if the box didn't appear).");
+    if (!r.ok) throw new Error(body.error || `The server answered ${r.status}.`);
+    const parts = Object.entries(body.added).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`);
+    T.msg = { ok: parts.length ? `Added ${parts.join(", ")} (from ${body.characters.join(", ") || "the file"}).`
+      : "Nothing new: everything in this file was already here.", diffs: body.recipeDiffs };
+    await loadTSM();
+  } catch (e) { T.msg = { err: e.message }; }
+  T.busy = false; render();
+}
+
+function tsmRows(kind) {
+  const days = PERIODS[T.period][1], since = isFinite(days) ? Date.now() / 1000 - days * 86400 : 0, q = T.q.trim().toLowerCase();
+  return (T.data.ledger[kind] || []).filter((r) => r.time >= since && (!q || (kind === "expense" || kind === "income"
+    ? `${r.type} ${r.otherPlayer}` : `${nameOf(itemId(r.itemString))} ${itemId(r.itemString)} ${r.otherPlayer || ""}`).toLowerCase().includes(q)));
+}
+const received = (r) => r.price * r.quantity * r.n * (r.source === "Auction" ? CUT : 1);
+
+function tsmView() {
+  const head = `<div class="card pad">
+      <h2 style="margin-top:0">Upload TSM data</h2>
+      <div class="row"><input type="file" id="tsmFile" accept=".lua"> <button class="btn primary" data-act="tsmupload"${T.busy ? " disabled" : ""}>${T.busy ? "Uploading…" : "Upload"}</button></div>
+      <p class="small" style="margin:8px 2px 0">Log out of the game first, so the file is written. Then pick
+        <code>World of Warcraft\\_forever_\\WTF\\Account\\&lt;account&gt;\\SavedVariables\\TradeSkillMaster.lua</code>.
+        Upload from every computer you play on: rows that are already here are skipped, so the totals combine without double counting.</p>
+      ${T.msg?.err ? `<p class="err">${esc(T.msg.err)}</p>` : ""}${T.msg?.ok ? `<p class="ok">${esc(T.msg.ok)}</p>` : ""}
+      ${T.msg?.diffs?.length ? `<p class="warn">The game's recipes differ from the database: ${T.msg.diffs.map(esc).join("; ")}.</p>` : ""}
+    </div>`;
+  if (T.loading && !T.data) return head + '<div class="empty">Loading TSM data…</div>';
+  if (T.error === "signin") return head + `<div class="card empty">The TSM data is behind the admin password.
+      <div style="margin-top:10px"><button class="btn" data-act="tsmload">Sign in</button></div></div>`;
+  if (T.error) return head + `<div class="card empty"><span class="err">${esc(T.error)}</span>
+      <div style="margin-top:10px"><button class="btn" data-act="tsmload">Try again</button></div></div>`;
+  if (!T.data) return head;
+  if (!Object.keys(T.data.ledger).length) return head + '<div class="card empty">No TSM data yet. Upload a file above.</div>';
+
+  const sales = tsmRows("sales"), buys = tsmRows("buys"), expense = tsmRows("expense"), income = tsmRows("income");
+  const sum = (rows, f) => rows.reduce((t, r) => t + f(r), 0);
+  const got = sum(sales, received), spent = sum(buys, (r) => r.price * r.quantity * r.n);
+  const postage = sum(expense, (r) => r.amount * r.n), other = sum(income, (r) => r.amount * r.n);
+  const gold = sum(T.data.characters, (c) => c.money || 0);
+  const big = `<div class="big">
+      <div class="bigstat"><div class="n">${fmt(got)}</div><div class="l">Received from sales (after the 5% cut)</div></div>
+      <div class="bigstat"><div class="n">${fmt(spent)}</div><div class="l">Spent on purchases</div></div>
+      <div class="bigstat"><div class="n ${got - spent - postage + other >= 0 ? "pos" : "neg"}">${fmt(got - spent - postage + other)}</div><div class="l">Sales − purchases − postage${other ? " + other income" : ""}</div></div>
+      <div class="bigstat"><div class="n">${fmt(gold)}</div><div class="l">Gold on ${T.data.characters.map((c) => charName(c.name)).join(", ") || "your characters"} at last upload</div></div>
+    </div>`;
+  const controls = `<nav class="subtabs" id="tsmSub">${Object.entries(SUBVIEWS).map(([k, t]) =>
+      `<button class="tab" data-sub="${k}" aria-selected="${T.view === k}">${t}</button>`).join("")}</nav>
+    <div class="toolbar">
+      <select id="tsmPeriod" aria-label="Period">${Object.entries(PERIODS).map(([k, [t]]) => `<option value="${k}"${T.period === k ? " selected" : ""}>${t}</option>`).join("")}</select>
+      <input type="search" id="tsmQ" placeholder="Filter by item, ID or player" value="${esc(T.q)}" aria-label="Filter" style="flex:1;min-width:180px">
+    </div>`;
+  let body;
+  if (T.view === "items") {
+    const by = {};
+    const row = (id) => (by[id] ||= { id, sold: 0, got: 0, gross: 0, bought: 0, spent: 0 });
+    for (const r of sales) { const x = row(itemId(r.itemString)); x.sold += r.quantity * r.n; x.got += received(r); x.gross += r.price * r.quantity * r.n; }
+    for (const r of buys) { const x = row(itemId(r.itemString)); x.bought += r.quantity * r.n; x.spent += r.price * r.quantity * r.n; }
+    const list = Object.values(by).sort((a, b) => b.got + b.spent - (a.got + a.spent));
+    body = list.length ? `<table><thead><tr><th>Item</th><th class="num">Sold</th><th class="num">Avg sale</th><th class="num">Received</th>
+        <th class="num">Bought</th><th class="num">Avg buy</th><th class="num">Spent</th></tr></thead><tbody>${list.map((x) => `<tr>
+        <td>${itemLink(x.id)}</td><td class="num">${x.sold || ""}</td><td class="num">${x.sold ? gcell(x.gross / x.sold) : ""}</td>
+        <td class="num">${x.sold ? gcell(x.got) : ""}</td><td class="num">${x.bought || ""}</td>
+        <td class="num">${x.bought ? gcell(x.spent / x.bought) : ""}</td><td class="num">${x.bought ? gcell(x.spent) : ""}</td></tr>`).join("")}</tbody></table>`
+      : '<div class="empty">Nothing in this period.</div>';
+  } else if (T.view === "sales" || T.view === "buys") {
+    const rows = T.view === "sales" ? sales : buys, who = T.view === "sales" ? "Buyer" : "Seller";
+    body = rows.length ? `<table><thead><tr><th>When</th><th>Item</th><th class="num">How many</th><th class="num">Price each</th>
+        <th class="num">${T.view === "sales" ? "Received" : "Total"}</th><th>${who}</th><th>Character</th><th>How</th></tr></thead><tbody>${rows.slice(0, 500).map((r) => `<tr>
+        <td class="small">${when(r.time)}</td><td>${itemLink(itemId(r.itemString))}</td>
+        <td class="num">${r.quantity * r.n}${r.n > 1 ? ` <span class="small">(${r.n}×${r.quantity})</span>` : ""}</td>
+        <td class="num">${gcell(r.price)}</td><td class="num">${gcell(T.view === "sales" ? received(r) : r.price * r.quantity * r.n)}</td>
+        <td class="small">${esc(r.otherPlayer)}</td><td>${charName(r.player)}</td><td class="small">${esc(r.source)}</td></tr>`).join("")}</tbody></table>
+        ${rows.length > 500 ? `<div class="note" style="padding:0 12px">Showing the newest 500 of ${rows.length}. Use the filter to narrow it down.</div>` : ""}`
+      : '<div class="empty">Nothing in this period.</div>';
+  } else if (T.view === "other") {
+    const rows = [...tsmRows("cancelled").map((r) => ({ ...r, what: "Cancelled" })), ...tsmRows("expired").map((r) => ({ ...r, what: "Expired" })),
+      ...expense.map((r) => ({ ...r, what: r.type })), ...income.map((r) => ({ ...r, what: r.type }))].sort((a, b) => b.time - a.time);
+    body = rows.length ? `<table><thead><tr><th>When</th><th>What</th><th>Item or to/from</th><th class="num">How many / amount</th><th>Character</th></tr></thead><tbody>${rows.map((r) => `<tr>
+        <td class="small">${when(r.time)}</td><td>${esc(r.what)}</td>
+        <td>${r.itemString ? itemLink(itemId(r.itemString)) : esc(r.otherPlayer)}</td>
+        <td class="num">${r.itemString ? r.quantity * r.n : gcell(r.amount * r.n)}</td><td>${charName(r.player)}</td></tr>`).join("")}</tbody></table>`
+      : '<div class="empty">Nothing in this period.</div>';
+  } else {
+    body = T.data.uploads.length ? `<table><thead><tr><th>When</th><th>Characters</th><th>New rows</th><th class="num">Size</th></tr></thead><tbody>${T.data.uploads.map((u) => {
+        const added = Object.entries(u.added).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ");
+        return `<tr><td class="small">${when(u.at)}</td><td>${u.characters.map(charName).join(", ")}</td>
+          <td>${added || '<span class="small">nothing new</span>'}</td><td class="num small">${(u.size / 1024).toFixed(0)} KB</td></tr>`; }).join("")}</tbody></table>`
+      : '<div class="empty">No uploads yet.</div>';
+  }
+  return head + big + controls + `<div class="card">${body}</div>
+    <p class="note">From TSM's accounting. Auction sales are shown after the 5% cut; vendor and trade sales as they are.
+      A row that was in several uploads counts once.</p>`;
 }
 
 // ---------- input handling ----------
@@ -455,31 +571,38 @@ view.addEventListener("change", (e) => {
   if (d.ah) { if (setGold(t, (v) => { S.prices[d.ah] = { ah: v, at: new Date().toISOString() }; })) { save(); render(); } }
   else if (d.vendor) { if (setGold(t, (v) => { S.vendor[d.vendor] = v; })) { save(); render(); } }
   else if (d.mode) { S.mode[d.mode] = t.value; save(); render(); }
-  else if (d.qty) { const [r, i] = d.qty.split(":"); const v = Math.max(0, +t.value || 0);
-    (S.qty[r] ||= {})[i] = v; save(); form.prices = null; render(); }
-  else if (d.makes) { S.makes[d.makes] = Math.max(1, Math.round(+t.value || 1)); save(); render(); }
   else if (d.ladder) {
     const [id, k] = d.ladder.split(":");
     if (setGold(t, (v) => { const rng = { ...ladderRange(id, summary(id)) }; if (v) rng[k] = v; S.ladder[id] = rng; })) { save(); render(); }
   }
   else if (d.bprice) { if (setGold(t, (v) => { form.prices[d.bprice] = v ?? 0; })) { t.value = fmt(form.prices[d.bprice]); updateBatchCost(); } }
-  else if (t.id === "bRecipe") { form.recipe = t.value; render(); }
-  else if (t.id === "sRecipe") { form.saleRecipe = t.value; }
+  else if (t.id === "bRecipe") { form.recipe = +t.value; render(); }
+  else if (t.id === "sRecipe") { form.saleRecipe = +t.value; }
   else if (t.id === "bQty") updateBatchCost();
+  else if (t.id === "tsmPeriod") { T.period = t.value; render(); }
   else if (t.id === "importFile" && t.files[0]) importBackup(t.files[0]);
 });
-view.addEventListener("input", (e) => { if (e.target.id === "bQty") updateBatchCost(); });
+let qTimer;
+view.addEventListener("input", (e) => {
+  if (e.target.id === "bQty") updateBatchCost();
+  if (e.target.id === "tsmQ") {
+    T.q = e.target.value; clearTimeout(qTimer);
+    qTimer = setTimeout(() => { const pos = e.target.selectionStart; render();
+      const q = document.getElementById("tsmQ"); q.focus(); q.setSelectionRange(pos, pos); }, 250);
+  }
+});
 view.addEventListener("keydown", (e) => {
   const row = e.target.closest?.("tr.open");
-  if (row && e.target === row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(row.dataset.open); }
+  if (row && e.target === row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(+row.dataset.open); }
 });
 view.addEventListener("click", (e) => {
   const t = e.target;
   const row = t.closest("tr.open");
-  if (row && !t.closest("input,select,button")) return toggle(row.dataset.open);
+  if (row && !t.closest("input,select,button,a")) return toggle(+row.dataset.open);
   const b = t.closest("button"); if (!b) return;
   const d = b.dataset;
-  if (d.startbatch) { form.recipe = d.startbatch; form.prices = null; tab = "batches"; render(); }
+  if (d.sub) { T.view = d.sub; render(); }
+  else if (d.startbatch) { form.recipe = +d.startbatch; form.prices = null; tab = "batches"; render(); }
   else if (d.delbatch && confirm("Delete this batch? Its sales stay and move to the next batch.")) {
     S.batches = S.batches.filter((x) => x.id !== d.delbatch); save(); render(); }
   else if (d.delsale && confirm("Delete this sale?")) { S.sales = S.sales.filter((x) => x.id !== d.delsale); save(); render(); }
@@ -493,11 +616,13 @@ view.addEventListener("click", (e) => {
     const qty = Math.round(+document.getElementById("sQty").value), price = parseGold(document.getElementById("sPrice").value);
     if (!(qty > 0)) return alert("Enter how many you sold.");
     if (!(price > 0)) return alert("Enter the price each, e.g. 2g 35s.");
-    const recipe = document.getElementById("sRecipe").value;
+    const recipe = +document.getElementById("sRecipe").value;
     form.saleRecipe = recipe;
     S.sales.push({ id: uid(), created: Date.now(), recipe, date: document.getElementById("sDate").value || today(), qty, price });
     save(); render();
-  } else if (d.act === "export") {
+  } else if (d.act === "tsmupload") uploadTSM();
+  else if (d.act === "tsmload") loadTSM();
+  else if (d.act === "export") {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 1)], { type: "application/json" }));
     a.download = `forever-craft-${today()}.json`; a.click(); URL.revokeObjectURL(a.href);
@@ -512,11 +637,29 @@ function importBackup(file) {
     const data = JSON.parse(txt);
     if (typeof data !== "object" || !Array.isArray(data.batches)) throw new Error("not a backup");
     if (!confirm(`Replace everything here with this backup (${data.batches.length} batches, ${(data.sales || []).length} sales)?`)) return;
-    S = Object.assign(fresh(), data); save(); render();
+    localStorage.setItem(KEY, JSON.stringify(data)); S = load(); save(); render();
   }).catch(() => alert("That file isn't a backup from this page."));
 }
 window.addEventListener("storage", (e) => { if (e.key === KEY) { S = load(); render(); } });
-render();
+
+async function start() {
+  try {
+    const r = await fetch("/craft/api/recipes");
+    if (!r.ok) throw new Error();
+    const db = await r.json();
+    for (const i of db.items) ITEMS[i.id] = { id: i.id, name: i.name, group: i.grp, vendor: i.vendor, ah: i.snapshot };
+    for (const c of db.recipes) {
+      Object.assign(ITEMS[c.item], { sub: c.kind !== "product",
+        craft: { ...c, from: c.reagents.map((x) => [x.item, x.qty]) } });
+      if (c.kind !== "sub") RECIPES.push(c.item);
+    }
+  } catch {
+    view.innerHTML = '<div class="card empty"><span class="err">Couldn\'t load the recipes from the server. Try again in a minute.</span></div>';
+    return;
+  }
+  render();
+}
+start();
 </script>
 </body>
 </html>

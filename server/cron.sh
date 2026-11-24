@@ -1,5 +1,6 @@
 #!/bin/bash
-# Rebuilds forever.lokiy.dev after an approval (TODO 5.7) and keeps a daily backup of the uploads (5.8). Separate from
+# Rebuilds forever.lokiy.dev after an approval (TODO 5.7) and keeps a daily backup of the uploads (5.8) and of the
+# crafting service's data (craft/). Separate from
 # V+'s sync_db.sh. Runs from the lokiy user's crontab:
 #   */5 * * * * /home/lokiy/forever/server/cron.sh
 DATA=/home/lokiy/forever-data
@@ -22,4 +23,16 @@ if [ ! -e "$TODAY" ]; then
 	PARTS=$(cd "$DATA" 2>/dev/null && ls -d approved rejected wowhead-raw codes.json log.jsonl 2>/dev/null)
 	[ -n "$PARTS" ] && tar -czf "$TODAY.part" -C "$DATA" $PARTS 2>/dev/null && mv "$TODAY.part" "$TODAY"
 	ls -1t "$BACKUPS"/forever-*.tar.gz | tail -n +15 | xargs -r rm -f
+fi
+
+# The crafting service's data (craft/): a consistent copy of the database plus every TSM upload; the last 14 stay
+CRAFT=/home/lokiy/forever-craft-data
+CTODAY=$BACKUPS/craft-$(date -u +%F).tar.gz
+if [ -e "$CRAFT/craft.db" ] && [ ! -e "$CTODAY" ]; then
+	mkdir -p "$BACKUPS"
+	TMPD=$(mktemp -d)
+	python3 -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' "$CRAFT/craft.db" "$TMPD/craft.db" &&
+		tar -czf "$CTODAY.part" -C "$TMPD" craft.db -C "$CRAFT" uploads 2>/dev/null && mv "$CTODAY.part" "$CTODAY"
+	rm -rf "$TMPD"
+	ls -1t "$BACKUPS"/craft-*.tar.gz | tail -n +15 | xargs -r rm -f
 fi

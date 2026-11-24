@@ -9,7 +9,8 @@ Status: drafts of the addon, upload service and site, not tested in game and not
 |---|---|---|
 | `addon/` | The WoW Forever addon players install | Players' game clients |
 | `server/` | Upload service and the scripts that build the site data | lokiy.dev server |
-| `site/` | The Forever loot website | lokiy.dev server (Caddy) |
+| `site/` | The Forever loot website, and the crafting calculator (`site/craft/`) | lokiy.dev server (Caddy) |
+| `craft/` | Crafting calculator service: recipe database and TSM uploads | lokiy.dev server |
 | `docs/` | TODO, HISTORY, how to edit, research notes | here |
 
 ## Vanilla+ and Forever are separate

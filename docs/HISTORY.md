@@ -164,3 +164,26 @@ Batches tab: saved batches with the price paid per reagent, sales taken from the
 browser only, with a JSON backup. Checked against the brief's test craft (4g 36s 93c) and Red Mageweave Bag (~7s).
 Leaded and Crystal Vial vendor prices aren't known yet, so they start empty. Footer link from the loot page.
 Phases 2-3 (price import, addon upload) are not started.
+
+## 2026-11-24: Recipe database and TSM uploads for the crafting calculator
+
+Lokiy: recipe amounts never change, so they belong in a database and not in the calculator; Wowhead Forever is the
+source unless Lokiy says otherwise; TSM files should upload so data from every computer combines, and show on a tab.
+
+New service `craft/` (systemd `forever-craft`, port 8768, data `~/forever-craft-data`): SQLite with the recipes
+(filled from `craft/recipes.py`, refilled whenever that file changes) and TSM's accounting from every upload.
+`GET /craft/api/recipes` is public; `/craft/api/tsm*` is behind the admin password. A ledger row is kept once with the
+most times it was in any single file, so the same or overlapping files from other computers add nothing twice.
+Every upload is kept gzipped. `server/cron.sh` backs the data up daily (`craft-<date>.tar.gz`). Installed with
+`sudo bash craft/install.sh` (service + Caddy routes, Caddyfile backed up and checked first).
+
+Recipes checked on Wowhead Forever: all ten match, including the Mageweave Reagent Bag (spell 1257443, item 254035:
+4 Bolt of Mageweave, 2 Heavy Silken Thread, 1 Magenta Dye, 1 Cerulean Dye), which the brief only had worked out from
+a batch. Lokiy's TSM file lists the same reagents for every tailoring recipe. Wowhead shows no items-per-craft count:
+1 everywhere (Cerulean Dye 1 seen in game).
+
+`site/craft/index.html`: recipes load from the database, the amount and items-per-craft fields are gone, each
+breakdown shows the source and a Wowhead link; saved prices and batches move to item IDs. New TSM tab: upload, totals
+(received after the 5% cut, spent, postage, gold), by item, sales, purchases, cancelled/expired, uploads, with a
+period and text filter. `craft/test_craft.py` checks recipes, merging, repeat and overlapping uploads, the recipe
+check and refused uploads. Lokiy's real file: 146 sales, 72 purchases, 10 cancelled, 1 expired, 2 postage.

@@ -1,4 +1,13 @@
 forever.lokiy.dev {
+    # crafting calculator (craft/, systemd forever-craft): recipes public, TSM data behind the admin password.
+    # Added to the live Caddyfile by craft/install.sh.
+    basic_auth /craft/api/tsm* {
+        lokiy @ADMIN_HASH@
+    }
+    request_body /craft/api/* {
+        max_size 32MB
+    }
+    reverse_proxy /craft/api/* localhost:8768
     basic_auth /admin* {
         lokiy @ADMIN_HASH@
     }
