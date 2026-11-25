@@ -7,6 +7,9 @@ Only listens on localhost; Caddy forwards /craft/api/* to it:
                                  Wowhead's average AH prices and the vendor prices TSM knows.
   GET  /craft/api/tsm            behind the /admin password (Caddy basic_auth on /craft/api/tsm*).
   POST /craft/api/tsm/upload     same password. Body = TradeSkillMaster.lua; its ledger rows are merged in.
+  GET  /craft/api/tsm/state      same password. The page's saved prices, price history and batches.
+  POST /craft/api/tsm/state      same password. Body = {"data": {...}, "base": <version it was based on>}; refused
+                                 with 409 (and the current state) when another computer saved in between.
 
 Merging: TSM's ledger rows have no ID, and the same row is in the file of every computer that played that character.
 A row (all its fields) is stored once with the most times it was in any one file, so uploading the same or an
@@ -62,11 +65,13 @@ CREATE TABLE IF NOT EXISTS vendor (item INTEGER PRIMARY KEY, price INTEGER NOT N
 CREATE TABLE IF NOT EXISTS catalog_items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, quality INTEGER,
   wowhead_avg INTEGER, vendor_sell INTEGER);
 CREATE TABLE IF NOT EXISTS catalog (spell INTEGER PRIMARY KEY, name TEXT NOT NULL, profession TEXT NOT NULL,
-  item INTEGER, makes INTEGER NOT NULL, learn INTEGER, grey INTEGER, source TEXT NOT NULL, trainer INTEGER,
-  sort INTEGER);
+  item INTEGER, makes INTEGER NOT NULL, learn INTEGER, yellow INTEGER, green INTEGER, grey INTEGER,
+  source TEXT NOT NULL, trainer INTEGER, sort INTEGER);
 CREATE TABLE IF NOT EXISTS catalog_reagents (spell INTEGER NOT NULL, item INTEGER NOT NULL, qty INTEGER NOT NULL,
   PRIMARY KEY (spell, item));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, version INTEGER NOT NULL,
+  updated INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS postings (name TEXT NOT NULL, realm TEXT NOT NULL, item INTEGER NOT NULL, qty INTEGER NOT NULL,
   price INTEGER NOT NULL, time INTEGER NOT NULL, PRIMARY KEY (name, realm, item, qty, price, time));
 """
@@ -107,14 +112,16 @@ def seed_catalog(con):
         return
     with open(CATALOG, encoding="utf-8") as f:
         cat = json.load(f)
+    # the catalog tables are only a copy of the file: recreated, so a new column needs no migration
+    con.executescript("DROP TABLE IF EXISTS catalog_reagents; DROP TABLE IF EXISTS catalog; "
+                      "DROP TABLE IF EXISTS catalog_items;" + SCHEMA)
     with con:
-        for t in ("catalog_reagents", "catalog", "catalog_items"):
-            con.execute(f"DELETE FROM {t}")
         con.executemany("INSERT INTO catalog_items VALUES (?,?,?,?,?)",
                         [(int(i), *v) for i, v in cat["items"].items()])
         for n, r in enumerate(cat["recipes"]):
-            con.execute("INSERT INTO catalog VALUES (?,?,?,?,?,?,?,?,?,?)",
-                        (r["spell"], r["name"], r["profession"], r["item"], r["makes"], r["learn"], r["grey"],
+            con.execute("INSERT INTO catalog VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (r["spell"], r["name"], r["profession"], r["item"], r["makes"], r["learn"], r.get("yellow"),
+                         r.get("green"), r["grey"],
                          json.dumps(r["source"]), r["trainer"], n))
             con.executemany("INSERT INTO catalog_reagents VALUES (?,?,?)",
                             [(r["spell"], int(i), q) for i, q in r["reagents"].items()])
@@ -257,6 +264,15 @@ def tsm_data(con):
             "vendor": vendor, "postings": postings}
 
 
+MAX_STATE = 4 * 1024 * 1024
+
+
+def get_state(con):
+    r = con.execute("SELECT data, version, updated FROM state WHERE id=1").fetchone()
+    return {"data": json.loads(r["data"]), "version": r["version"], "updated": r["updated"]} if r \
+        else {"data": None, "version": 0, "updated": None}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "forever-craft"
     sys_version = ""
@@ -295,6 +311,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(500, {"error": str(e)})
             finally:
                 con.close()
+        if route == "/craft/api/tsm/state":
+            con = connect()
+            try:
+                return self.send(200, get_state(con))
+            finally:
+                con.close()
         if STATIC and not route.startswith("/craft/api/"):
             return self.static(route)
         self.send(404, {"error": "Not found."})
@@ -317,6 +339,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/craft/api/tsm/state":
+            return self.save_state()
         if self.path != "/craft/api/tsm/upload":
             return self.send(404, {"error": "Not found."})
         if not self.own_page():
@@ -354,6 +378,42 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 con.close()
         self.send(200, {"added": added, "inFile": in_file, "characters": names, "recipeDiffs": diffs})
+
+
+def _save_state(self):
+    """The page's prices, history and batches, one JSON document with a version number: a save based on an older
+    version is refused (409) with the current one, so the page can merge and try again."""
+    if not self.own_page():
+        return self.send(403, {"error": "Saving only works from forever.lokiy.dev/craft/."})
+    try:
+        size = int(self.headers.get("Content-Length") or -1)
+    except ValueError:
+        size = -1
+    if not 0 < size <= MAX_STATE:
+        return self.send(413 if size > 0 else 400, {"error": "Missing or too large."})
+    try:
+        body = json.loads(self.rfile.read(size))
+        data, base = body["data"], int(body["base"])
+        if not isinstance(data, dict):
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        return self.send(400, {"error": "Expected {\"data\": {...}, \"base\": <version>}."})
+    with lock:
+        con = connect()
+        try:
+            cur = get_state(con)
+            if base != cur["version"]:
+                return self.send(409, cur)
+            now = int(time.time())
+            with con:
+                con.execute("INSERT OR REPLACE INTO state VALUES (1, ?, ?, ?)",
+                            (json.dumps(data, ensure_ascii=False), cur["version"] + 1, now))
+            return self.send(200, {"version": cur["version"] + 1, "updated": now})
+        finally:
+            con.close()
+
+
+Handler.save_state = _save_state
 
 
 def reread_uploads(con):

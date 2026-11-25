@@ -95,6 +95,8 @@
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-tab="calc">Calculator</button>
     <button class="tab" role="tab" data-tab="recipes">All recipes</button>
+    <button class="tab" role="tab" data-tab="plan">What to craft</button>
+    <button class="tab" role="tab" data-tab="skill">Skill-up</button>
     <button class="tab" role="tab" data-tab="prices">Prices</button>
     <button class="tab" role="tab" data-tab="batches">Batches</button>
     <button class="tab" role="tab" data-tab="tsm">TSM</button>
@@ -163,8 +165,12 @@ const refreshTooltips = () => window.$WowheadPower?.refreshLinks?.();
 const fresh = () => ({ prices: {}, vendor: {}, mode: {}, ladder: {}, batches: [], sales: [], history: [] });
 let S = load();
 function load() {
-  let s;
-  try { s = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { s = fresh(); }
+  let raw;
+  try { raw = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { raw = {}; }
+  return normalize(raw);
+}
+function normalize(raw) {
+  const s = Object.assign(fresh(), raw);
   const fix = (k) => OLD_IDS[k] ?? k;
   for (const m of ["prices", "vendor", "mode", "ladder"]) s[m] = Object.fromEntries(Object.entries(s[m]).map(([k, v]) => [fix(k), v]));
   for (const b of s.batches) { b.recipe = fix(b.recipe); b.prices = Object.fromEntries(Object.entries(b.prices || {}).map(([k, v]) => [fix(k), v])); }
@@ -172,7 +178,73 @@ function load() {
   delete s.qty; delete s.makes;  // amounts are fixed now: they come from the recipe database
   return s;
 }
-function save() { localStorage.setItem(KEY, JSON.stringify(S)); }
+function save() {
+  if (SYNC.on) { S.dirty = true; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(pushState, 800); }
+  localStorage.setItem(KEY, JSON.stringify(S));
+}
+
+// ---------- saved on the server ----------
+// Once this browser has signed in (TSM tab), prices, price history, batches and sales are kept on the server, so every
+// computer sees the same. This browser keeps a copy; "dirty" = changes the server doesn't have yet. On opening the
+// page a clean copy is replaced by the server's, a dirty one is merged with it. A save based on an older version is
+// refused by the server, merged and sent again.
+const SYNC = { on: false, version: 0, timer: null, at: null, error: null };
+const LOCAL_ONLY = ["dirty", "tsmSignedIn"];
+function mergeStates(a, b) {  // a: this browser's unsaved changes, b: the server's
+  const at = (x) => x?.at || "";
+  const out = normalize({ ...b, ...a });
+  out.prices = { ...b.prices };
+  for (const [id, p] of Object.entries(a.prices || {})) if (!out.prices[id] || at(p) >= at(out.prices[id])) out.prices[id] = p;
+  out.vendor = { ...b.vendor, ...a.vendor }; out.mode = { ...b.mode, ...a.mode }; out.ladder = { ...b.ladder, ...a.ladder };
+  const deleted = new Set([...(a.deleted || []), ...(b.deleted || [])]);
+  const byId = (mine, theirs) => [...new Map([...(theirs || []), ...(mine || [])].map((x) => [x.id, x])).values()].filter((x) => !deleted.has(x.id));
+  out.batches = byId(a.batches, b.batches); out.sales = byId(a.sales, b.sales); out.deleted = [...deleted];
+  const key = (h) => `${h.id}|${h.kind}|${h.at}|${h.to}`;
+  out.history = [...new Map([...(b.history || []), ...(a.history || [])].map((h) => [key(h), h])).values()]
+    .sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0));
+  out.tsmApplied = at(a.tsmApplied) >= at(b.tsmApplied) ? a.tsmApplied : b.tsmApplied;
+  return out;
+}
+const shareable = () => Object.fromEntries(Object.entries(S).filter(([k]) => !LOCAL_ONLY.includes(k)));
+function keepLocal(next) { next.tsmSignedIn = true; next.dirty = false; return next; }
+async function loadState() {
+  try {
+    const r = await fetch("/craft/api/tsm/state", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status === 401 ? "Not signed in." : `The server answered ${r.status}.`);
+    const st = await r.json();
+    SYNC.version = st.version; SYNC.at = st.updated; SYNC.on = true; SYNC.error = null;
+    if (st.data && !S.dirty) S = keepLocal(normalize(st.data));
+    else if (st.data) { S = keepLocal(mergeStates(S, normalize(st.data))); S.dirty = true; }
+    else S.dirty = true;  // nothing on the server yet: this browser's prices and batches go up
+    localStorage.setItem(KEY, JSON.stringify(S));
+    if (S.dirty) await pushState();
+  } catch (e) { SYNC.error = e.message || "Couldn't reach the server."; }
+  render();
+}
+async function pushState() {
+  if (!SYNC.on || !S.dirty) return;
+  clearTimeout(SYNC.timer);
+  try {
+    const r = await fetch("/craft/api/tsm/state", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: shareable(), base: SYNC.version }) });
+    const body = await r.json().catch(() => ({}));
+    if (r.status === 409) {  // another computer saved in between: merge and send again
+      SYNC.version = body.version;
+      S = keepLocal(mergeStates(S, normalize(body.data || {}))); S.dirty = true;
+      localStorage.setItem(KEY, JSON.stringify(S)); render();
+      return pushState();
+    }
+    if (!r.ok) throw new Error(body.error || `The server answered ${r.status}.`);
+    SYNC.version = body.version; SYNC.at = body.updated; SYNC.error = null;
+    S.dirty = false; localStorage.setItem(KEY, JSON.stringify(S));
+  } catch (e) { SYNC.error = e.message || "Couldn't reach the server."; }
+  if (tab === "prices") render();
+}
+function syncNote() {
+  if (SYNC.on && !SYNC.error) return `<p class="small" style="margin:6px 2px">Saved on the server${S.dirty ? " (saving…)" : SYNC.at ? `, last ${whenAt(new Date(SYNC.at * 1000).toISOString())}` : ""}: every computer you sign in on sees these prices, the history and your batches.</p>`;
+  if (SYNC.error) return `<p class="warn">Not saved on the server (${esc(SYNC.error)}): changes stay in this browser and go up next time.</p>`;
+  return '<p class="small" style="margin:6px 2px">Saved in this browser only. Sign in on the TSM tab to keep prices and batches on the server for every computer.</p>';
+}
 
 const ahPrice = (id) => id in S.prices ? S.prices[id].ah : (ITEMS[id].ah ?? null);
 const ahAt = (id) => id in S.prices ? S.prices[id].at : (ITEMS[id].ah != null ? DEFAULT_AT : null);
@@ -220,8 +292,8 @@ tabs.addEventListener("click", (e) => {
   const b = e.target.closest(".tab"); if (!b || !RECIPES.length) return;
   tab = b.dataset.tab; render();
   // The TSM tab always loads; Batches only once this browser has signed in before (no password box for visitors)
-  if ((tab === "tsm" || ((tab === "batches" || tab === "recipes") && S.tsmSignedIn)) && !T.data && !T.loading) loadTSM();
-  if (tab === "recipes" && !C.data && !C.loading) loadCatalog();
+  if ((tab === "tsm" || tab === "plan" || (["batches", "recipes", "skill"].includes(tab) && S.tsmSignedIn)) && !T.data && !T.loading) loadTSM();
+  if (["recipes", "plan", "skill"].includes(tab) && !C.data && !C.loading) loadCatalog();
 });
 
 function render() {
@@ -231,9 +303,9 @@ function render() {
   el.hidden = !stale.length || tab === "tsm";
   el.textContent = stale.length ? `${stale.length} AH price${stale.length > 1 ? "s are" : " is"} more than 12 hours old. Update them on the Prices tab before trusting the profit.` : "";
   view.innerHTML = tab === "calc" ? calcView() : tab === "prices" ? pricesView() : tab === "batches" ? batchesView()
-    : tab === "recipes" ? catalogView() : tsmView();
+    : tab === "recipes" ? catalogView() : tab === "plan" ? planView() : tab === "skill" ? skillView() : tsmView();
   if (tab === "batches") updateBatchCost();
-  if (tab === "tsm" || tab === "batches" || tab === "recipes") refreshTooltips();
+  if (["tsm", "batches", "recipes", "plan", "skill"].includes(tab)) refreshTooltips();
 }
 
 function missingNote(missing) {
@@ -355,6 +427,7 @@ function pricesView() {
       <button class="btn" data-act="reset">Reset prices to the 22 Nov snapshot</button>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
     </div>
+    ${syncNote()}
     ${historyCard()}`;
 }
 
@@ -458,18 +531,18 @@ const when = (t) => new Date(t * 1000).toLocaleString("en-GB", { day: "numeric",
 const charName = (n) => esc(String(n || "").split(" ")[0]);
 
 async function loadTSM() {
-  T.loading = true; T.error = null; if (tab === "tsm" || tab === "batches" || tab === "recipes") render();
+  T.loading = true; T.error = null; if (["tsm", "batches", "recipes", "plan", "skill"].includes(tab)) render();
   try {
     const r = await fetch("/craft/api/tsm", { cache: "no-store" });
     if (r.status === 401) throw new Error("signin");
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `The server answered ${r.status}.`);
     T.data = await r.json();
-    if (!S.tsmSignedIn) { S.tsmSignedIn = true; save(); }
+    if (!S.tsmSignedIn) { S.tsmSignedIn = true; save(); loadState(); }
     if (applyTSMPrices()) render();
   } catch (e) {
     T.error = e.message === "signin" ? "signin" : e.message || "Couldn't reach the server.";
   }
-  T.loading = false; if (tab === "tsm" || tab === "batches" || tab === "recipes") render();
+  T.loading = false; if (["tsm", "batches", "recipes", "plan", "skill"].includes(tab)) render();
 }
 
 async function uploadTSM() {
@@ -773,7 +846,7 @@ async function loadCatalog() {
     }
     C.data = d;
   } catch (e) { C.error = e.message || "Couldn't reach the server."; }
-  C.loading = false; if (tab === "recipes") render();
+  C.loading = false; if (["recipes", "plan", "skill"].includes(tab)) render();
 }
 const catName = (id) => ITEMS[id]?.name ?? C.data?.items[id]?.[0] ?? `item ${id}`;
 const catLink = (id) => `<a href="${WOWHEAD}/item=${id}" data-wh-rename-link="false">${esc(catName(id))}</a>`;
@@ -987,6 +1060,135 @@ function historyCard() {
       <button class="btn" data-act="histclear">Clear the history</button></div>`;
 }
 
+// ---------- what to craft ----------
+// For each recipe your characters know (TSM): profit each (All recipes prices), how fast it sold for you over the last
+// SALE_DAYS days (auction sales; expired and cancelled count against it), and what's already posted or in your bags.
+// "Make" = enough for the chosen days of sales, minus what you already have.
+const SALE_DAYS = 14;
+const P = { days: "3", untested: true };
+function planRows() {
+  const since = Date.now() / 1000 - SALE_DAYS * 86400, sold = {}, failed = {}, posted = {}, stock = {};
+  const add = (m, id, n) => { m[id] = (m[id] || 0) + n; };
+  for (const r of T.data.ledger.sales || []) if (r.source === "Auction" && r.time >= since) add(sold, itemId(r.itemString), r.quantity * r.n);
+  for (const k of ["expired", "cancelled"]) for (const r of T.data.ledger[k] || []) if (r.time >= since) add(failed, itemId(r.itemString), (r.quantity || 1) * r.n);
+  for (const r of T.data.inventory || []) add(r.place === "auction" ? posted : stock, r.item, r.qty);
+  const seen = new Set(), days = +P.days, rows = [];
+  for (const c of T.data.crafts || []) {
+    const rec = C.data.bySpell[c.spell];
+    if (!rec?.item || seen.has(rec.item)) continue;
+    seen.add(rec.item);
+    const s = catSummary(rec), id = rec.item, n = sold[id] || 0, f = failed[id] || 0, perDay = n / SALE_DAYS;
+    const have = (posted[id] || 0) + (stock[id] || 0), make = Math.max(0, Math.ceil(perDay * days) - have);
+    rows.push({ rec, s, id, n, f, perDay, have, posted: posted[id] || 0, stock: stock[id] || 0, make,
+      crafts: Math.ceil(make / (rec.makes || 1)), daily: s.profit != null ? s.profit * perDay : null,
+      through: n + f ? n / (n + f) : null });
+  }
+  return rows;
+}
+function planView() {
+  if (T.error === "signin" || (!T.data && !T.loading && !S.tsmSignedIn)) return `<div class="card empty">This needs your TSM data (sales, inventory and known recipes), which is behind the admin password.
+      <div style="margin-top:10px"><button class="btn" data-act="tsmload">Sign in</button></div></div>`;
+  if (C.error) return `<div class="card empty"><span class="err">${esc(C.error)}</span></div>`;
+  if (!T.data || !C.data) return '<div class="empty">Loading your TSM data and the recipe database…</div>';
+  const rows = planRows();
+  const selling = rows.filter((r) => r.n > 0 && r.s.profit > 0).sort((a, b) => b.daily - a.daily);
+  const losing = rows.filter((r) => r.n > 0 && r.s.profit != null && r.s.profit <= 0);
+  const untested = rows.filter((r) => r.n === 0 && r.s.profit > 0 && !r.s.c.missing.length).sort((a, b) => b.s.profit - a.s.profit).slice(0, 15);
+  const rough = (r) => r.s.c.rough || r.s.sell?.src === "Wowhead" ? ' <span class="small" title="Uses Wowhead\'s average AH price somewhere">≈</span>' : "";
+  const line = (r, extra) => `<tr><td>${catLink(r.id)}${rough(r)}<div class="small">${esc(r.rec.profession)}${r.rec.makes > 1 ? ` · makes ${r.rec.makes}` : ""}</div></td>
+      <td class="num">${signed(r.s.profit)}<div class="small">sells ${fmt(r.s.sell?.price)} ${srcTag(r.s.sell?.src)}</div></td>${extra}</tr>`;
+  const sellTable = selling.length ? `<div class="card"><table><thead><tr><th>Item</th><th class="num">Profit each</th>
+      <th class="num">Sold (${SALE_DAYS} days)</th><th class="num">Sell-through</th><th class="num">On AH · in bags</th>
+      <th class="num">Make now</th><th class="num">Profit a day</th></tr></thead><tbody>${selling.map((r) => line(r, `
+      <td class="num">${r.n}<div class="small">${r.perDay.toFixed(1)} a day</div></td>
+      <td class="num">${r.through == null ? "–" : (r.through * 100).toFixed(0) + "%"}<div class="small">${r.f ? `${r.f} expired/cancelled` : ""}</div></td>
+      <td class="num">${r.posted} · ${r.stock}</td>
+      <td class="num"><b>${r.make}</b>${r.make && r.crafts !== r.make ? `<div class="small">${r.crafts} crafts</div>` : ""}</td>
+      <td class="num">${signed(r.daily)}</td>`)).join("")}</tbody></table></div>`
+    : '<div class="card empty">Nothing you know has sold at a profit in the last ' + SALE_DAYS + ' days.</div>';
+  const tryTable = P.untested && untested.length ? `<h2>Profitable on paper, not sold by you yet</h2>
+    <div class="card"><table><thead><tr><th>Item</th><th class="num">Profit each</th><th class="num">On AH · in bags</th></tr></thead>
+      <tbody>${untested.map((r) => line(r, `<td class="num">${r.posted} · ${r.stock}</td>`)).join("")}</tbody></table></div>
+    <p class="note">No sales of these in ${SALE_DAYS} days, so there's no telling how fast they sell: try one or two first.
+      Prices marked ≈ are Wowhead's averages, not this realm's.</p>` : "";
+  const loseNote = losing.length ? `<p class="warn">Selling at a loss at today's prices: ${losing.map((r) => `${esc(catName(r.id))} (${fmt(r.s.profit)} each)`).join(", ")}.</p>` : "";
+  return `<div class="toolbar">
+      <label class="field">Make enough for <select data-plan="days">${[["1", "1 day"], ["3", "3 days"], ["7", "7 days"]].map(([v, t]) => `<option value="${v}"${P.days === v ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="small"><input type="checkbox" data-plan="untested"${P.untested ? " checked" : ""}> show recipes you haven't sold yet</label></div>
+    <h2>Worth making: they sell, at a profit</h2>${sellTable}${loseNote}${tryTable}
+    <p class="note">From the ${T.data.crafts.length} recipes your characters know (TSM). Sold = your auction sales in the last
+      ${SALE_DAYS} days; sell-through = sold ÷ (sold + expired + cancelled). Make now = sales for the chosen days − what's on
+      the AH and in your bags, bank and mail (as of your last upload). Profit a day = profit each × sales a day. Prices as on All recipes.</p>`;
+}
+
+// ---------- skill-up planner ----------
+// Cheapest way from one skill to another at today's prices: at each skill point, the recipe with the lowest expected
+// cost per skill-up. Chance of a skill-up: orange 100%; from yellow to grey (grey − skill) ÷ (grey − yellow).
+const K = { prof: "Enchanting", from: 1, to: 300, trainer: true, vendor: true, drop: false, known: false };
+function skillChance(r, skill) {
+  if (!r.grey || skill < r.learn || skill >= r.grey) return 0;
+  if (r.yellow == null || skill < r.yellow) return 1;
+  return (r.grey - skill) / (r.grey - r.yellow);
+}
+function skillPlan() {
+  const known = knownSpells();
+  const allowed = (r) => (K.known ? known.has(r.spell) : (r.source.includes("Trainer") && K.trainer) || (r.source.includes("Vendor") && K.vendor)
+    || (r.source.some((x) => x !== "Trainer" && x !== "Vendor") && K.drop) || known.has(r.spell));
+  const pool = C.data.recipes.filter((r) => r.profession === K.prof && r.grey && allowed(r))
+    .map((r) => ({ r, c: catCost(r) })).filter((x) => !x.c.missing.length);
+  const steps = [], gaps = [];
+  for (let skill = K.from; skill < K.to; skill++) {
+    let best = null;
+    for (const x of pool) {
+      const ch = skillChance(x.r, skill); if (!ch) continue;
+      const per = x.c.total / ch;
+      if (!best || per < best.per) best = { ...x, per, crafts: 1 / ch };
+    }
+    if (!best) { gaps.push(skill); continue; }
+    const last = steps[steps.length - 1];
+    if (last && last.r.spell === best.r.spell && last.to === skill) { last.to = skill + 1; last.crafts += best.crafts; last.cost += best.per; }
+    else steps.push({ r: best.r, c: best.c, from: skill, to: skill + 1, crafts: best.crafts, cost: best.per });
+  }
+  const mats = {}; let total = 0, training = 0; const learned = new Set();
+  for (const st of steps) {
+    st.n = Math.ceil(st.crafts - 1e-9); st.cost = st.n * st.c.total; total += st.cost;
+    if (st.r.trainer && !learned.has(st.r.spell) && !known.has(st.r.spell)) { training += st.r.trainer; learned.add(st.r.spell); }
+    for (const l of st.c.lines) { const m = mats[l.id] ||= { q: 0, u: l.u }; m.q += l.q * st.n; }
+  }
+  return { steps, gaps, mats, total, training };
+}
+function skillView() {
+  if (C.error) return `<div class="card empty"><span class="err">${esc(C.error)}</span></div>`;
+  if (!C.data) return '<div class="empty">Loading the recipe database…</div>';
+  const plan = skillPlan();
+  const chk = (k, t, dis) => `<label class="small"${dis ? ` title="${dis}"` : ""}><input type="checkbox" data-skill="${k}"${K[k] ? " checked" : ""}${dis ? " disabled" : ""}> ${t}</label>`;
+  const steps = plan.steps.map((st) => `<tr><td class="num">${st.from}–${st.to}</td>
+      <td><a href="${WOWHEAD}/spell=${st.r.spell}" data-wh-rename-link="false">${esc(st.r.name)}</a>
+        <div class="small">${esc(learnFrom(st.r))}${knownSpells().has(st.r.spell) ? ' · <span class="pill craft">known</span>' : ""}</div></td>
+      <td class="num">~${st.n}</td><td class="num">${gcell(st.c.total)}</td><td class="num">${gcell(st.cost)}</td></tr>`).join("");
+  const mats = Object.entries(plan.mats).sort((a, b) => b[1].q * b[1].u.cost - a[1].q * a[1].u.cost).map(([id, m]) => `<tr><td>${catLink(id)}</td>
+      <td class="num">${m.q}</td><td class="num">${gcell(m.u.cost)} ${srcTag(m.u.src)}</td><td class="num">${gcell(m.q * m.u.cost)}</td></tr>`).join("");
+  const gaps = plan.gaps.length ? `<p class="warn">No priced recipe for skill ${plan.gaps.length > 6 ? `${plan.gaps[0]}–${plan.gaps[plan.gaps.length - 1]} (${plan.gaps.length} points)` : plan.gaps.join(", ")}: allow more recipe sources or add prices.</p>` : "";
+  return `<div class="toolbar">
+      <select data-skill="prof" aria-label="Profession">${["Tailoring", "Enchanting", "Alchemy"].map((x) => `<option${K.prof === x ? " selected" : ""}>${x}</option>`).join("")}</select>
+      <label class="field">From <input type="number" class="qin" min="1" max="300" value="${K.from}" data-skill="from"></label>
+      <label class="field">To <input type="number" class="qin" min="1" max="300" value="${K.to}" data-skill="to"></label>
+      ${chk("trainer", "trainer recipes")} ${chk("vendor", "vendor recipes")} ${chk("drop", "drops and quests")}
+      ${chk("known", "only recipes I know", T.data ? "" : "Needs your TSM data (sign in on the TSM tab)")}</div>
+    <div class="big">
+      <div class="bigstat"><div class="n">${fmt(plan.total)}</div><div class="l">Materials, skill ${K.from} → ${K.to}</div></div>
+      <div class="bigstat"><div class="n">${fmt(plan.training)}</div><div class="l">Trainer costs for recipes you don't know</div></div>
+      <div class="bigstat"><div class="n">${plan.steps.reduce((t, s) => t + s.n, 0)}</div><div class="l">Crafts (expected)</div></div></div>
+    ${gaps}
+    <div class="card"><table><thead><tr><th class="num">Skill</th><th>Craft</th><th class="num">Crafts</th><th class="num">Cost each</th><th class="num">Cost</th></tr></thead>
+      <tbody>${steps || '<tr><td colspan="5" class="empty">No plan: no recipe fits.</td></tr>'}</tbody></table></div>
+    ${mats ? `<h2>Shopping list</h2><div class="card"><table><thead><tr><th>Material</th><th class="num">Amount</th><th class="num">Each</th><th class="num">Total</th></tr></thead><tbody>${mats}</tbody></table></div>` : ""}
+    <p class="note">Each skill point uses the recipe with the lowest expected cost per skill-up at the prices on All recipes
+      (reagents you can make count as crafted when that's cheaper). Orange recipes always give a point; from yellow to grey
+      the chance falls evenly to 0, so crafts are an estimate. What you make isn't counted as sold. Skill levels from Wowhead
+      Forever; recipes Wowhead lists without skill colours are left out.</p>`;
+}
+
 // ---------- input handling ----------
 function setGold(input, apply) {
   const v = parseGold(input.value);
@@ -1012,6 +1214,8 @@ view.addEventListener("change", (e) => {
   else if (t.id === "catSourced") { C.sourced = t.checked; render(); }
   else if (t.id === "catPriced") { C.priced = t.checked; render(); }
   else if (t.id === "catKnown") { C.known = t.checked; render(); }
+  else if (d.plan) { P[d.plan] = t.type === "checkbox" ? t.checked : t.value; render(); }
+  else if (d.skill) { K[d.skill] = t.type === "checkbox" ? t.checked : t.type === "number" ? Math.max(1, Math.min(300, +t.value || 1)) : t.value; render(); }
   else if (t.id === "importFile" && t.files[0]) importBackup(t.files[0]);
 });
 let qTimer;
@@ -1042,8 +1246,8 @@ view.addEventListener("click", (e) => {
   else if (d.act === "togglefinished") { T.showFinished = !T.showFinished; render(); }
   else if (d.startbatch) { form.recipe = +d.startbatch; form.prices = null; tab = "batches"; render(); }
   else if (d.delbatch && confirm("Delete this batch? Its sales stay and move to the next batch.")) {
-    S.batches = S.batches.filter((x) => x.id !== d.delbatch); save(); render(); }
-  else if (d.delsale && confirm("Delete this sale?")) { S.sales = S.sales.filter((x) => x.id !== d.delsale); save(); render(); }
+    S.batches = S.batches.filter((x) => x.id !== d.delbatch); (S.deleted ||= []).push(d.delbatch); save(); render(); }
+  else if (d.delsale && confirm("Delete this sale?")) { S.sales = S.sales.filter((x) => x.id !== d.delsale); (S.deleted ||= []).push(d.delsale); save(); render(); }
   else if (d.act === "addbatch") {
     const qty = Math.round(+document.getElementById("bQty").value);
     if (!(qty > 0)) return alert("Enter how many you're making.");
@@ -1082,7 +1286,8 @@ function importBackup(file) {
     const data = JSON.parse(txt);
     if (typeof data !== "object" || !Array.isArray(data.batches)) throw new Error("not a backup");
     if (!confirm(`Replace everything here with this backup (${data.batches.length} batches, ${(data.sales || []).length} sales)?`)) return;
-    localStorage.setItem(KEY, JSON.stringify(data)); S = load(); save(); render();
+    const signedIn = S.tsmSignedIn;
+    localStorage.setItem(KEY, JSON.stringify(data)); S = load(); S.tsmSignedIn = signedIn; save(); render();
   }).catch(() => alert("That file isn't a backup from this page."));
 }
 window.addEventListener("storage", (e) => { if (e.key === KEY) { S = load(); render(); } });
@@ -1103,7 +1308,7 @@ async function start() {
     return;
   }
   render();
-  if (S.tsmSignedIn) loadTSM();
+  if (S.tsmSignedIn) { await loadState(); loadTSM(); }
 }
 start();
 </script>

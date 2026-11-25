@@ -126,6 +126,17 @@ def main():
         status, t = call("/craft/api/tsm")
         assert t["characters"][0]["money"] == 7 and ("bag", 254079, 3) in {(r["place"], r["item"], r["qty"]) for r in t["inventory"]}
 
+        # the page's saved prices and batches: versioned, a save based on an old version is refused with the current one
+        status, st = call("/craft/api/tsm/state")
+        assert status == 200 and st["data"] is None and st["version"] == 0, st
+        status, st = call("/craft/api/tsm/state", json.dumps({"data": {"prices": {"14047": {"ah": 600}}}, "base": 0}).encode())
+        assert status == 200 and st["version"] == 1, st
+        status, st = call("/craft/api/tsm/state", json.dumps({"data": {"prices": {}}, "base": 0}).encode())
+        assert status == 409 and st["version"] == 1 and st["data"]["prices"]["14047"]["ah"] == 600, st
+        status, st = call("/craft/api/tsm/state", json.dumps({"data": {}, "base": 1}).encode(),
+                          {"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"})
+        assert status == 403, st
+
         status, err = call("/craft/api/tsm/upload", first, {"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"})
         assert status == 403, (status, err)
         status, err = call("/craft/api/tsm/upload", b"Foo = { }")
@@ -133,7 +144,7 @@ def main():
         status, err = call("/craft/api/tsm/upload", b"not lua at all {{{")
         assert status == 400, err
         print("ok: recipes, merge, repeat upload, overlapping upload, recipe check, inventory and its save time, "
-              "TSM recipes, vendor prices and auction posts, refused uploads")
+              "TSM recipes, vendor prices and auction posts, saved page state, refused uploads")
     finally:
         proc.terminate()
         proc.wait()

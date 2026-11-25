@@ -24,6 +24,27 @@ SOURCES = {1: "Crafted", 2: "Drop", 4: "Quest", 5: "Vendor", 6: "Trainer", 7: "D
            21: "Pickpocket"}
 PROFESSIONS = {197: "Tailoring", 333: "Enchanting", 171: "Alchemy"}
 
+# Recipes Wowhead has a pattern item for but leaves out of its profession lists (checked 2026-11-25 by comparing the
+# pattern lists with the spell lists). Reagents from Wowhead's spell tooltip, product and skill from the pattern.
+# Not added: the six Slimeslayer's/Slimetender's Adaptive patterns (Wowhead has no recipe data for them yet), and
+# Scroll: Wrath of the Swarm / Enchanted Repellent (Season of Discovery; Wowhead says they may not be in Forever).
+EXTRA_ITEMS = {7079: "Globe of Water", 4304: "Thick Leather", 10020: "Stormcloth Vest", 10011: "Stormcloth Gloves",
+               10010: "Stormcloth Pants", 10032: "Stormcloth Headband", 10039: "Stormcloth Boots",
+               10038: "Stormcloth Shoulders", 7069: "Elemental Air", 13463: "Dreamfoil", 8925: "Crystal Vial",
+               13460: "Greater Holy Protection Potion", 6370: "Blackmouth Oil", 3357: "Liferoot", 3372: "Leaded Vial",
+               8827: "Draught of Water Walking", 4339: "Bolt of Mageweave", 8343: "Heavy Silken Thread"}
+EXTRA = [
+    # spell, name, profession, product, skill, sources, reagents
+    (12068, "Stormcloth Vest", "Tailoring", 10020, 190, [], {4339: 5, 7079: 3, 8343: 2}),
+    (12063, "Stormcloth Gloves", "Tailoring", 10011, 185, ["Quest", "Vendor"], {4339: 3, 7079: 2, 8343: 2}),
+    (12062, "Stormcloth Pants", "Tailoring", 10010, 185, ["Drop"], {4339: 4, 7079: 2, 8343: 2}),
+    (12083, "Stormcloth Headband", "Tailoring", 10032, 200, ["Drop"], {4339: 4, 7079: 4, 8343: 2}),
+    (12090, "Stormcloth Boots", "Tailoring", 10039, 205, ["Drop"], {4339: 6, 7079: 6, 8343: 3, 4304: 2}),
+    (12087, "Stormcloth Shoulders", "Tailoring", 10038, 200, ["Drop"], {4339: 5, 7079: 6, 8343: 3}),
+    (17579, "Greater Holy Protection Potion", "Alchemy", 13460, 290, [], {7069: 1, 13463: 1, 8925: 1}),
+    (11447, "Draught of Water Walking", "Alchemy", 8827, 180, [], {6370: 1, 3357: 1, 3372: 1}),
+]
+
 
 def load(path):
     text = open(path, encoding="utf-8").read().strip()
@@ -54,10 +75,20 @@ def main(paths):
                 "makes": max(1, round((creates[1] + creates[2]) / 2)) if creates[0] else 0,
                 "reagents": {str(i): q for i, q in s["reagents"]},
                 "learn": s.get("learnedat") or 0,
+                # skill colours: orange until "yellow", then yellow until "green", green until "grey"
+                "yellow": colors[1] if len(colors) == 4 else None,
+                "green": colors[2] if len(colors) == 4 else None,
                 "grey": colors[3] if len(colors) == 4 else None,
                 "source": [SOURCES.get(c, f"source {c}") for c in (s.get("source") or [])],
                 "trainer": s.get("trainingcost") or None,
             }
+    for spell, name, prof, item, learn, sources, reagents in EXTRA:
+        if spell not in recipes:
+            recipes[spell] = {"spell": spell, "name": name, "profession": prof, "item": item, "makes": 1,
+                              "reagents": {str(i): q for i, q in reagents.items()}, "learn": learn, "yellow": None, "green": None, "grey": None,
+                              "source": sources or ["Pattern"], "trainer": None}
+    for i, name in EXTRA_ITEMS.items():
+        items.setdefault(i, [name, None, None, None])
     used = {r["item"] for r in recipes.values() if r["item"]} | {int(i) for r in recipes.values() for i in r["reagents"]}
     out = {
         "fetched": datetime.date.today().isoformat(),

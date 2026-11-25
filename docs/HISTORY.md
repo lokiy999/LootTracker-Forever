@@ -311,3 +311,16 @@ for auction sales) and "Received", and a batch's "if the rest sells" uses the li
   is replaced by the newest of your AH purchase, auction sale (listing price) or auction post when that is newer
   than the saved price. The old price goes to the price history, tagged with where the new one came from; a price
   typed later wins again.
+
+## 2026-11-25: Crafting calculator: server-saved prices, What to craft, Skill-up, missing recipes
+- Prices, price history, batches and sales are saved on the server once a browser has signed in
+  (`/craft/api/tsm/state`, versioned; two computers' changes are merged instead of overwritten). A browser's existing
+  data was sent up the first time.
+- New "What to craft" tab: for every recipe you know, profit each, sales and sell-through over 14 days, what's on the
+  AH and in your bags, how many to make for 1/3/7 days of sales and profit a day; plus profitable recipes not sold yet.
+- New "Skill-up" tab: cheapest path between two skill levels per profession at current prices (expected crafts per
+  step, materials shopping list, trainer costs), using Wowhead's skill colours (now kept in catalog.json).
+- Recipe database: 8 recipes Wowhead has patterns for but leaves out of its profession lists were added (Stormcloth
+  set, Greater Holy Protection Potion, Draught of Water Walking): 834 recipes. Left out: the six Slime "Adaptive"
+  patterns (no recipe data on Wowhead) and two Season of Discovery formulas.
+- Dyes: 1 per craft, confirmed by Lokiy.

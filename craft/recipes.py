@@ -1,8 +1,7 @@
 """Recipes and items for the crafting calculator: the seed the database is filled from on every start.
 
 Wowhead Forever (https://www.wowhead.com/forever) is the source unless Lokiy says otherwise; where the game showed
-something Wowhead doesn't, `source` says so. Wowhead shows no "items per craft" for these recipes, so `makes` is 1
-unless the game said otherwise (Cerulean Dye: 1, seen in game). Change recipes here, not in the database: it is
+something Wowhead doesn't, `source` says so. Every recipe here makes 1 (the dyes: Lokiy confirmed in game). Change recipes here, not in the database: it is
 refilled from this file when the service starts.
 
 Prices are copper. `vendor` = vendor price; `snapshot` = the AH price from Lokiy's 22 Nov scan (21 Nov where 22 Nov
@@ -57,13 +56,13 @@ RECIPES = [
          note="Needs a moonwell and has a 3.96-day cooldown, so this is the profit per cooldown."),
     dict(spell=1249630, item=249409, kind="both", profession="Alchemy", skill="35-50", makes=1,
          reagents={249399: 2, 3371: 1},
-         source="Wowhead Forever; 1 per craft seen in game", note=""),
+         source="Wowhead Forever; 1 per craft (Lokiy, in game)", note=""),
     dict(spell=1249631, item=249430, kind="both", profession="Alchemy", skill="~120-130", makes=1,
          reagents={249424: 2, 3372: 1},
-         source="Wowhead Forever (shows no count per craft)", note="Dyes per craft not seen in game yet."),
+         source="Wowhead Forever; 1 per craft (Lokiy, in game)", note=""),
     dict(spell=1249632, item=249431, kind="both", profession="Alchemy", skill="230", makes=1,
          reagents={249274: 2, 8925: 1},
-         source="Wowhead Forever (shows no count per craft)", note="Dyes per craft not seen in game yet."),
+         source="Wowhead Forever; 1 per craft (Lokiy, in game)", note=""),
     dict(spell=18401, item=14048, kind="sub", profession="Tailoring", skill="", makes=1,
          reagents={14047: 5}, source="Wowhead Forever; 5 cloth seen in game", note=""),
     dict(spell=3865, item=4339, kind="sub", profession="Tailoring", skill="", makes=1,

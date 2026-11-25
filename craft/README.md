@@ -29,6 +29,13 @@ knows. The page's "All recipes" tab shows it with cost, price and profit. To ref
 of `import_wowhead.py` (Wowhead refuses scripts, so the lists are saved from a browser). TSM uploads are checked
 against it too: a recipe where the game says something else is reported in the upload answer.
 
+## Saved page state
+
+Once a browser has signed in, the page keeps its prices, price history, batches and sales on the server
+(`GET/POST /craft/api/tsm/state`, behind the admin password): one JSON document in the `state` table with a version
+number. A save based on an older version is refused with the current one; the page merges (newest price per item,
+batches and sales by id, history by entry) and saves again, so two computers don't overwrite each other.
+
 ## TSM uploads
 
 `POST /craft/api/tsm/upload` with `TradeSkillMaster.lua` from
