@@ -28,6 +28,10 @@ PROFESSIONS = {197: "Tailoring", 333: "Enchanting", 171: "Alchemy"}
 # pattern lists with the spell lists). Reagents from Wowhead's spell tooltip, product and skill from the pattern.
 # Not added: the six Slimeslayer's/Slimetender's Adaptive patterns (Wowhead has no recipe data for them yet), and
 # Scroll: Wrath of the Swarm / Enchanted Repellent (Season of Discovery; Wowhead says they may not be in Forever).
+# Recipes with a cooldown, from Wowhead's spell tooltips (all 834 checked 2026-11-25). The Skill-up tab leaves them out.
+COOLDOWNS = {18560: "3.96 days", 17187: "1.96 days", 1317279: "1.96 days", 17559: "23 hours", 17560: "23 hours",
+             17561: "23 hours", 17562: "23 hours", 17563: "23 hours", 17564: "23 hours", 17565: "23 hours",
+             17566: "23 hours", 11479: "1 hour", 11480: "1 hour", 25146: "10 minutes"}
 EXTRA_ITEMS = {7079: "Globe of Water", 4304: "Thick Leather", 10020: "Stormcloth Vest", 10011: "Stormcloth Gloves",
                10010: "Stormcloth Pants", 10032: "Stormcloth Headband", 10039: "Stormcloth Boots",
                10038: "Stormcloth Shoulders", 7069: "Elemental Air", 13463: "Dreamfoil", 8925: "Crystal Vial",
@@ -87,6 +91,8 @@ def main(paths):
             recipes[spell] = {"spell": spell, "name": name, "profession": prof, "item": item, "makes": 1,
                               "reagents": {str(i): q for i, q in reagents.items()}, "learn": learn, "yellow": None, "green": None, "grey": None,
                               "source": sources or ["Pattern"], "trainer": None}
+    for spell, r in recipes.items():
+        r["cooldown"] = COOLDOWNS.get(spell)
     for i, name in EXTRA_ITEMS.items():
         items.setdefault(i, [name, None, None, None])
     used = {r["item"] for r in recipes.values() if r["item"]} | {int(i) for r in recipes.values() for i in r["reagents"]}

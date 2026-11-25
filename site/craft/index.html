@@ -984,6 +984,7 @@ function catDetail(r, s) {
       <td class="num"><input class="gin" type="text" value="${yourPrice(l.id) == null ? "" : fmt(yourPrice(l.id))}" placeholder="your price" data-ah="${l.id}" aria-label="Your price for ${esc(catName(l.id))}"></td>
       <td class="num">${gcell(l.q * l.u.cost)}</td></tr>`).join("");
   const facts = [esc(r.profession), r.learn ? `learn at ${r.learn}` : "", r.makes > 1 ? `makes ${r.makes}` : "",
+    r.cooldown ? `cooldown ${esc(r.cooldown)}` : "",
     `learn from: ${esc(learnFrom(r))}`, `<a href="${WOWHEAD}/spell=${r.spell}">recipe on Wowhead</a>`].filter(Boolean).join(" · ");
   const product = r.item ? `<div class="row" style="margin-top:12px">
       <span>Makes ${catLink(r.item)}</span>
@@ -1134,7 +1135,8 @@ function skillPlan() {
   const known = knownSpells();
   const allowed = (r) => (K.known ? known.has(r.spell) : (r.source.includes("Trainer") && K.trainer) || (r.source.includes("Vendor") && K.vendor)
     || (r.source.some((x) => x !== "Trainer" && x !== "Vendor") && K.drop) || known.has(r.spell));
-  const pool = C.data.recipes.filter((r) => r.profession === K.prof && r.grey && allowed(r))
+  // recipes with a cooldown (Mooncloth, transmutes) are left out: a skill point every few days is no plan
+  const pool = C.data.recipes.filter((r) => r.profession === K.prof && r.grey && !r.cooldown && allowed(r))
     .map((r) => ({ r, c: catCost(r) })).filter((x) => !x.c.missing.length);
   const steps = [], gaps = [];
   for (let skill = K.from; skill < K.to; skill++) {
@@ -1186,7 +1188,7 @@ function skillView() {
     <p class="note">Each skill point uses the recipe with the lowest expected cost per skill-up at the prices on All recipes
       (reagents you can make count as crafted when that's cheaper). Orange recipes always give a point; from yellow to grey
       the chance falls evenly to 0, so crafts are an estimate. What you make isn't counted as sold. Skill levels from Wowhead
-      Forever; recipes Wowhead lists without skill colours are left out.</p>`;
+      Forever; recipes Wowhead lists without skill colours, and recipes with a cooldown (like Mooncloth), are left out.</p>`;
 }
 
 // ---------- input handling ----------

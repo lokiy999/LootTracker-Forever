@@ -324,3 +324,8 @@ for auction sales) and "Received", and a batch's "if the rest sells" uses the li
   set, Greater Holy Protection Potion, Draught of Water Walking): 834 recipes. Left out: the six Slime "Adaptive"
   patterns (no recipe data on Wowhead) and two Season of Discovery formulas.
 - Dyes: 1 per craft, confirmed by Lokiy.
+
+## 2026-11-25: Crafting calculator: cooldown recipes left out of Skill-up
+- All 834 recipes' Wowhead tooltips checked for a craft cooldown: Mooncloth and 13 alchemy transmutes have one.
+  `import_wowhead.py` keeps them as `cooldown` in catalog.json (new column); the Skill-up tab leaves them out and
+  All recipes shows the cooldown in a recipe's details.

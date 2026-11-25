@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (id INTEGER PRIMARY KEY, name TEXT NOT 
   wowhead_avg INTEGER, vendor_sell INTEGER);
 CREATE TABLE IF NOT EXISTS catalog (spell INTEGER PRIMARY KEY, name TEXT NOT NULL, profession TEXT NOT NULL,
   item INTEGER, makes INTEGER NOT NULL, learn INTEGER, yellow INTEGER, green INTEGER, grey INTEGER,
-  source TEXT NOT NULL, trainer INTEGER, sort INTEGER);
+  source TEXT NOT NULL, trainer INTEGER, cooldown TEXT, sort INTEGER);
 CREATE TABLE IF NOT EXISTS catalog_reagents (spell INTEGER NOT NULL, item INTEGER NOT NULL, qty INTEGER NOT NULL,
   PRIMARY KEY (spell, item));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -119,10 +119,10 @@ def seed_catalog(con):
         con.executemany("INSERT INTO catalog_items VALUES (?,?,?,?,?)",
                         [(int(i), *v) for i, v in cat["items"].items()])
         for n, r in enumerate(cat["recipes"]):
-            con.execute("INSERT INTO catalog VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            con.execute("INSERT INTO catalog VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (r["spell"], r["name"], r["profession"], r["item"], r["makes"], r["learn"], r.get("yellow"),
                          r.get("green"), r["grey"],
-                         json.dumps(r["source"]), r["trainer"], n))
+                         json.dumps(r["source"]), r["trainer"], r.get("cooldown"), n))
             con.executemany("INSERT INTO catalog_reagents VALUES (?,?,?)",
                             [(r["spell"], int(i), q) for i, q in r["reagents"].items()])
         con.execute("INSERT OR REPLACE INTO meta VALUES ('catalog_fetched', ?)", (cat["fetched"],))
