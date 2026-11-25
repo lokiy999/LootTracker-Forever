@@ -303,3 +303,11 @@ for auction sales) and "Received", and a batch's "if the rest sells" uses the li
   set and when it changed. The Prices tab shows each item's last shift (▲/▼ amount and %), a per-item list behind
   "n changes", and all changes newest first below the table. Saved in the browser with the prices and included in
   backups; the reset button doesn't add entries.
+
+## 2026-11-25: Crafting calculator: TSM uploads update prices
+- `craft/tsm.py` + `server.py`: TSM's auction sale hints (Lokiy's own auction posts: item, stack, buyout each, time)
+  are read and kept in a `postings` table; existing uploads are read again once (user_version 2).
+- `site/craft/`: when the TSM data loads (after an upload, or on opening the page once signed in), an item's price
+  is replaced by the newest of your AH purchase, auction sale (listing price) or auction post when that is newer
+  than the saved price. The old price goes to the price history, tagged with where the new one came from; a price
+  typed later wins again.

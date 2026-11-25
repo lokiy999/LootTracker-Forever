@@ -338,15 +338,17 @@ function pricesView() {
         <td class="num"><input class="gin" type="text" value="${val == null ? "" : fmt(val)}" placeholder="${isVendor ? "not set" : "none"}"
           ${isVendor ? `data-vendor="${id}"` : `data-ah="${id}"`} aria-label="${esc(nameOf(id))} ${isVendor ? "vendor" : "AH"} price"></td>
         <td class="num">${last ? shift(last) : ""}</td>
-        <td>${isVendor ? '<span class="small">vendor</span>' : age(ahAt(id))}</td></tr>
+        <td>${isVendor ? '<span class="small">vendor</span>' : age(ahAt(id))}${!isVendor && S.prices[id]?.src ? ` <span class="pill craft">${esc(S.prices[id].src)}</span>` : ""}</td></tr>
         ${histOpen === +id ? `<tr class="detail"><td colspan="4"><div class="inner" style="margin-top:0"><table>${HIST_HEAD}<tbody>${historyRows([...hist].reverse())}</tbody></table></div></td></tr>` : ""}`;
     }).join("");
   }).join("");
-  return `<div class="card"><table><thead><tr><th>Item</th><th class="num">Price each</th><th class="num">Last change</th><th>Updated</th></tr></thead>
+  const fromTSM = S.tsmApplied ? `<p class="note">Your TSM data last changed ${S.tsmApplied.n} price${S.tsmApplied.n > 1 ? "s" : ""} (${whenAt(S.tsmApplied.at)}). Old prices are in the list at the bottom.</p>` : "";
+  return `${fromTSM}<div class="card"><table><thead><tr><th>Item</th><th class="num">Price each</th><th class="num">Last change</th><th>Updated</th></tr></thead>
       <tbody>${body}</tbody></table></div>
     <p class="note">Type prices the way the game shows them: <span class="g">3g 22s 50c</span>, <span class="g">45s</span>,
       <span class="g">50c</span>. A plain number is silver. Leave a field empty if you can't buy the item. The AH prices
-      start as the 22 Nov snapshot.</p>
+      start as the 22 Nov snapshot. When your TSM data (uploads, signed in) has a newer AH purchase, sale or auction
+      post of an item than the price here, that price replaces it; a price you type later wins again.</p>
     <div class="toolbar">
       <button class="btn" data-act="export">Download a backup</button>
       <button class="btn" data-act="import">Restore a backup…</button>
@@ -463,6 +465,7 @@ async function loadTSM() {
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `The server answered ${r.status}.`);
     T.data = await r.json();
     if (!S.tsmSignedIn) { S.tsmSignedIn = true; save(); }
+    if (applyTSMPrices()) render();
   } catch (e) {
     T.error = e.message === "signin" ? "signin" : e.message || "Couldn't reach the server.";
   }
@@ -930,10 +933,36 @@ function currentPrice(kind, id) {
   if (id in S.prices) return { price: S.prices[id].ah, at: S.prices[id].at };
   return ITEMS[id]?.ah != null ? { price: ITEMS[id].ah, at: DEFAULT_AT } : { price: null, at: null };
 }
-function setPrice(kind, id, v) {
-  const old = currentPrice(kind, id), at = new Date().toISOString();
-  if (kind === "vendor") S.vendor[id] = v; else S.prices[id] = { ah: v, at };
-  if (old.price !== v) S.history.push({ id: +id, kind, from: old.price, fromAt: old.at, to: v, at });
+// src: "TSM purchase" / "TSM sale" / "TSM post" when an upload set it (then at = when that happened in game)
+function setPrice(kind, id, v, at = new Date().toISOString(), src = null) {
+  const old = currentPrice(kind, id);
+  if (kind === "vendor") S.vendor[id] = v; else S.prices[id] = src ? { ah: v, at, src } : { ah: v, at };
+  if (old.price !== v) S.history.push({ id: +id, kind, from: old.price, fromAt: old.at, to: v, at, ...(src ? { src } : {}) });
+}
+
+// TSM prices newer than the one saved here replace it (the old one goes to the history): your latest AH purchase
+// (price each), auction sale (the listing price: TSM saves it after the 5% cut) or auction post (buyout each)
+function applyTSMPrices() {
+  if (!T.data) return 0;
+  const latest = {};
+  const take = (id, price, time, src) => {
+    if (id && price > 0 && time && (!latest[id] || time > latest[id].time)) latest[id] = { price, time, src };
+  };
+  for (const r of T.data.ledger.buys || []) if (r.source === "Auction") take(itemId(r.itemString), r.price, r.time, "TSM purchase");
+  for (const r of T.data.ledger.sales || []) if (r.source === "Auction") take(itemId(r.itemString), listedAt(r), r.time, "TSM sale");
+  for (const r of T.data.postings || []) take(r.item, r.price, r.time, "TSM post");
+  const ids = new Set([...Object.keys(ITEMS).filter((id) => ITEMS[id].group !== "Vendor"), ...Object.keys(S.prices)]);
+  let changed = 0;
+  for (const id of ids) {
+    const e = latest[id]; if (!e) continue;
+    const cur = currentPrice("ah", id), curAt = cur.at ? new Date(cur.at) / 1000 : 0;
+    if (e.time <= curAt) continue;
+    if (cur.price !== e.price) changed++;
+    setPrice("ah", id, e.price, new Date(e.time * 1000).toISOString(), e.src);
+  }
+  if (changed) { S.tsmApplied = { at: new Date().toISOString(), n: changed }; }
+  save();
+  return changed;
 }
 const historyOf = (id) => S.history.filter((h) => h.id === +id);
 const whenAt = (iso) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -944,7 +973,7 @@ function shift(h) {
 }
 let histOpen = null, histAll = false;
 function historyRows(list) {
-  return list.map((h) => `<tr><td class="small">${whenAt(h.at)}</td><td>${itemLink(h.id)}${h.kind === "vendor" ? ' <span class="pill vendor">vendor</span>' : ""}</td>
+  return list.map((h) => `<tr><td class="small">${whenAt(h.at)}</td><td>${itemLink(h.id)}${h.kind === "vendor" ? ' <span class="pill vendor">vendor</span>' : ""}${h.src ? ` <span class="pill craft" title="Set by a TSM upload; the time is when it happened in game">${esc(h.src)}</span>` : ""}</td>
     <td class="num">${gcell(h.from)}${h.fromAt ? `<div class="small">${whenAt(h.fromAt)}</div>` : ""}</td>
     <td class="num">${gcell(h.to)}</td><td class="num">${shift(h)}</td></tr>`).join("");
 }
@@ -1074,6 +1103,7 @@ async function start() {
     return;
   }
   render();
+  if (S.tsmSignedIn) loadTSM();
 }
 start();
 </script>

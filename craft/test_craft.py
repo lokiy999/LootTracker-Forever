@@ -39,6 +39,7 @@ TradeSkillMasterDB = {{
 ["s@Lokiy Volaurin - Horde - Normal@internalData@goldLogLastUpdate"] = {saved},
 ["s@Lokiy Volaurin - Horde - Normal@internalData@bagQuantity"] = {{ ["i:254079"] = {bags}, ["i:14047"] = 5 }},
 ["s@Lokiy Volaurin - Horde - Normal@internalData@auctionQuantity"] = {{ ["i:254079"] = 4 }},
+["c@Lokiy Volaurin - Normal@internalData@auctionSaleHints"] = {{ ["Runecloth Reagent Bag\001i:254079\0011\00133500"] = 1795400200 }},
 ["g@ @internalData@vendorItems"] = {{ ["i:14341"] = 5000, ["i:2604"] = 50 }},
 ["f@Horde - Normal@internalData@crafts"] = {{
 ["c:18405"] = {{ ["mats"] = {{ ["i:14048"] = 5, ["i:249409"] = 2, ["i:8170"] = 2, ["i:14341"] = 1, ["i:249430"] = 4 }}, ["numResult"] = 1, ["name"] = "Runecloth Bag" }},
@@ -113,6 +114,7 @@ def main():
         assert len(os.listdir(os.path.join(data, "uploads"))) >= 1
         inv = {(r["place"], r["item"]): r["qty"] for r in t["inventory"]}
         assert inv == {("bag", 254079): 20, ("bag", 14047): 5, ("auction", 254079): 4}, inv
+        assert [(p["item"], p["qty"], p["price"], p["time"]) for p in t["postings"]] == [(254079, 1, 33500, 1795400200)], t["postings"]
         assert {c["spell"] for c in t["crafts"]} == {18405, 12079, 3839} and t["vendor"] == {"14341": 5000, "2604": 50}
 
         # an older save (another computer that hasn't played since) doesn't overwrite gold or inventory...
@@ -131,7 +133,7 @@ def main():
         status, err = call("/craft/api/tsm/upload", b"not lua at all {{{")
         assert status == 400, err
         print("ok: recipes, merge, repeat upload, overlapping upload, recipe check, inventory and its save time, "
-              "TSM recipes and vendor prices, refused uploads")
+              "TSM recipes, vendor prices and auction posts, refused uploads")
     finally:
         proc.terminate()
         proc.wait()

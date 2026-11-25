@@ -8,6 +8,8 @@ What it takes out:
   inventory   s@...@internalData@{bag,bank,mail,auction,...}Quantity: item -> count, per character
   crafts      f@<Faction> - <realm>@internalData@crafts: the recipes the game told TSM (spell -> mats, numResult)
   vendor      g@ @internalData@vendorItems: item -> vendor buy price (full price; reputation discounts not included)
+  postings    c@<Name Realm> - <realm>@internalData@auctionSaleHints: Lokiy's own auction posts, keyed
+              "<name>\x01<itemString>\x01<stack size>\x01<buyout each>" -> unix time posted
 """
 import csv
 import io
@@ -26,6 +28,7 @@ CHAR_KEY = re.compile(r"^s@(?P<name>.+) - (?P<faction>[^-@]+) - (?P<realm>[^@]+)
                       r"(?P<field>money|classKey|goldLogLastUpdate|(?P<place>\w+)Quantity)$")
 CRAFTS_KEY = re.compile(r"^f@[^@]+@internalData@crafts$")
 VENDOR_KEY = "g@ @internalData@vendorItems"
+HINTS_KEY = re.compile(r"^c@(?P<name>.+) - (?P<realm>[^@]+)@internalData@auctionSaleHints$")
 CHAR_FIELDS = {"money": "money", "classKey": "class", "goldLogLastUpdate": "updated"}
 
 
@@ -64,7 +67,7 @@ def read(text):
     db = top.get("TradeSkillMasterDB")
     if not isinstance(db, dict):
         raise NotTSM("This isn't TradeSkillMaster.lua (no TradeSkillMasterDB in it).")
-    ledger, chars, crafts, vendor = {}, {}, {}, {}
+    ledger, chars, crafts, vendor, postings = {}, {}, {}, {}, []
     for key, value in db.items():
         m = LEDGER_KEY.match(key)
         if m and m["csv"] in KINDS and isinstance(value, str):
@@ -86,6 +89,16 @@ def read(text):
                 if isinstance(craft, dict) and isinstance(craft.get("mats"), dict):
                     crafts[str(spell).replace("c:", "")] = craft
             continue
+        m = HINTS_KEY.match(key)
+        if m and isinstance(value, dict):
+            for hint, at in value.items():
+                parts = str(hint).split("\x01")
+                if len(parts) == 4 and (i := item_id(parts[1])) and parts[2].isdigit() and parts[3].isdigit() \
+                        and isinstance(at, int):
+                    postings.append({"name": m["name"], "realm": m["realm"], "item": i, "qty": int(parts[2]),
+                                     "price": int(parts[3]), "time": at})
+            continue
         if key == VENDOR_KEY and isinstance(value, dict):
             vendor = {i: p for k, p in value.items() if (i := item_id(k)) and isinstance(p, int)}
-    return {"ledger": ledger, "characters": list(chars.values()), "crafts": crafts, "vendor": vendor}
+    return {"ledger": ledger, "characters": list(chars.values()), "crafts": crafts, "vendor": vendor,
+            "postings": postings}

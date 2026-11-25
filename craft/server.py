@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS catalog (spell INTEGER PRIMARY KEY, name TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS catalog_reagents (spell INTEGER NOT NULL, item INTEGER NOT NULL, qty INTEGER NOT NULL,
   PRIMARY KEY (spell, item));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS postings (name TEXT NOT NULL, realm TEXT NOT NULL, item INTEGER NOT NULL, qty INTEGER NOT NULL,
+  price INTEGER NOT NULL, time INTEGER NOT NULL, PRIMARY KEY (name, realm, item, qty, price, time));
 """
 
 
@@ -231,6 +233,9 @@ def merge(con, data, upload_id):
                     (int(spell), tsm.item_id(craft.get("itemString")), craft.get("name"), craft.get("profession"),
                      craft.get("numResult") or 1, json.dumps(mats)))
     con.executemany("INSERT OR REPLACE INTO vendor VALUES (?,?)", data["vendor"].items())
+    # Lokiy's own auction posts (price each, time): kept for good, so the page knows the latest listing price
+    con.executemany("INSERT OR IGNORE INTO postings VALUES (?,?,?,?,?,?)",
+                    [(p["name"], p["realm"], p["item"], p["qty"], p["price"], p["time"]) for p in data.get("postings", [])])
     return added, in_file
 
 
@@ -247,8 +252,9 @@ def tsm_data(con):
     crafts = [{**dict(r), "mats": {int(k): v for k, v in json.loads(r["mats"]).items()}}
               for r in con.execute("SELECT * FROM crafts")]
     vendor = {r["item"]: r["price"] for r in con.execute("SELECT * FROM vendor")}
+    postings = [dict(r) for r in con.execute("SELECT name, item, qty, price, time FROM postings ORDER BY time DESC")]
     return {"ledger": ledger, "uploads": uploads, "characters": chars, "inventory": inventory, "crafts": crafts,
-            "vendor": vendor}
+            "vendor": vendor, "postings": postings}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -351,12 +357,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def reread_uploads(con):
-    """Uploads from before the crafts/inventory tables existed: read the kept files again, oldest first. Merging a
-    file twice adds no ledger rows, so this only fills what's missing."""
-    if con.execute("PRAGMA user_version").fetchone()[0] >= 1:
+    """Uploads from before a table existed (1: crafts/inventory, 2: postings): read the kept files again, oldest
+    first. Merging a file twice adds no ledger rows, so this only fills what's missing."""
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 2:
         return
-    with con:  # before this, "updated" was the upload time, not the save time: let the files set it again
-        con.execute("UPDATE characters SET updated=NULL")
+    if version < 1:
+        with con:  # before this, "updated" was the upload time, not the save time: let the files set it again
+            con.execute("UPDATE characters SET updated=NULL")
     for u in con.execute("SELECT id, file FROM uploads ORDER BY id").fetchall():
         try:
             with gzip.open(os.path.join(DATA, "uploads", u["file"]), "rb") as f:
@@ -366,7 +374,7 @@ def reread_uploads(con):
             continue
         with con:
             merge(con, data, u["id"])
-    con.execute("PRAGMA user_version = 1")
+    con.execute("PRAGMA user_version = 2")
 
 
 def main():
