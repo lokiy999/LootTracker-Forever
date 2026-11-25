@@ -71,6 +71,7 @@
   button.primary { background: #1d3550; border-color: #2d5784; }
   button.link { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: .8rem; padding: 2px 4px; }
   button.link:hover { color: var(--bad); }
+  button.link.hist { color: var(--accent); } button.link.hist:hover { color: var(--text); text-decoration: underline; }
   .row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
   .field { display: flex; flex-direction: column; gap: 3px; font-size: .78rem; color: var(--muted); }
   .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
@@ -158,7 +159,8 @@ const itemLink = (id) => `<a href="${WOWHEAD}/item=${id}" data-wh-rename-link="$
 const refreshTooltips = () => window.$WowheadPower?.refreshLinks?.();
 
 // ---------- state ----------
-const fresh = () => ({ prices: {}, vendor: {}, mode: {}, ladder: {}, batches: [], sales: [] });
+// history: every price change, oldest first: { id, kind: "ah" | "vendor", from, fromAt, to, at }
+const fresh = () => ({ prices: {}, vendor: {}, mode: {}, ladder: {}, batches: [], sales: [], history: [] });
 let S = load();
 function load() {
   let s;
@@ -328,16 +330,19 @@ function pricesView() {
   const body = GROUPS.map((g) => {
     const ids = Object.keys(ITEMS).filter((id) => ITEMS[id].group === g);
     if (!ids.length) return "";
-    return `<tr class="sec"><td colspan="3">${g === "Products" ? "Products (what you sell them for)" : g}</td></tr>` + ids.map((id) => {
+    return `<tr class="sec"><td colspan="4">${g === "Products" ? "Products (what you sell them for)" : g}</td></tr>` + ids.map((id) => {
       const isVendor = g === "Vendor";
       const val = isVendor ? vendorPrice(id) : ahPrice(id);
-      return `<tr><td>${esc(nameOf(id))}</td>
+      const hist = historyOf(id), last = hist[hist.length - 1];
+      return `<tr><td>${esc(nameOf(id))}${hist.length ? ` <button class="link hist" data-hist="${id}" aria-expanded="${histOpen === +id}">${hist.length} change${hist.length > 1 ? "s" : ""}</button>` : ""}</td>
         <td class="num"><input class="gin" type="text" value="${val == null ? "" : fmt(val)}" placeholder="${isVendor ? "not set" : "none"}"
           ${isVendor ? `data-vendor="${id}"` : `data-ah="${id}"`} aria-label="${esc(nameOf(id))} ${isVendor ? "vendor" : "AH"} price"></td>
-        <td>${isVendor ? '<span class="small">vendor</span>' : age(ahAt(id))}</td></tr>`;
+        <td class="num">${last ? shift(last) : ""}</td>
+        <td>${isVendor ? '<span class="small">vendor</span>' : age(ahAt(id))}</td></tr>
+        ${histOpen === +id ? `<tr class="detail"><td colspan="4"><div class="inner" style="margin-top:0"><table>${HIST_HEAD}<tbody>${historyRows([...hist].reverse())}</tbody></table></div></td></tr>` : ""}`;
     }).join("");
   }).join("");
-  return `<div class="card"><table><thead><tr><th>Item</th><th class="num">Price each</th><th>Updated</th></tr></thead>
+  return `<div class="card"><table><thead><tr><th>Item</th><th class="num">Price each</th><th class="num">Last change</th><th>Updated</th></tr></thead>
       <tbody>${body}</tbody></table></div>
     <p class="note">Type prices the way the game shows them: <span class="g">3g 22s 50c</span>, <span class="g">45s</span>,
       <span class="g">50c</span>. A plain number is silver. Leave a field empty if you can't buy the item. The AH prices
@@ -347,7 +352,8 @@ function pricesView() {
       <button class="btn" data-act="import">Restore a backup…</button>
       <button class="btn" data-act="reset">Reset prices to the 22 Nov snapshot</button>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
-    </div>`;
+    </div>
+    ${historyCard()}`;
 }
 
 // ---------- batches ----------
@@ -917,6 +923,41 @@ function catDetail(r, s) {
     ${product}`;
 }
 
+// ---------- price history ----------
+// The price an input showed before the change (the 22 Nov snapshot counts), so the first change has a "from" too
+function currentPrice(kind, id) {
+  if (kind === "vendor") return { price: id in S.vendor ? S.vendor[id] : (ITEMS[id]?.vendor ?? null), at: null };
+  if (id in S.prices) return { price: S.prices[id].ah, at: S.prices[id].at };
+  return ITEMS[id]?.ah != null ? { price: ITEMS[id].ah, at: DEFAULT_AT } : { price: null, at: null };
+}
+function setPrice(kind, id, v) {
+  const old = currentPrice(kind, id), at = new Date().toISOString();
+  if (kind === "vendor") S.vendor[id] = v; else S.prices[id] = { ah: v, at };
+  if (old.price !== v) S.history.push({ id: +id, kind, from: old.price, fromAt: old.at, to: v, at });
+}
+const historyOf = (id) => S.history.filter((h) => h.id === +id);
+const whenAt = (iso) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+function shift(h) {
+  if (h.from == null || h.to == null) return `<span class="small">${h.from == null ? "first price" : "cleared"}</span>`;
+  const d = h.to - h.from, pct = h.from ? ` <span class="small">${d > 0 ? "+" : ""}${(d / h.from * 100).toFixed(0)}%</span>` : "";
+  return d === 0 ? '<span class="small">same</span>' : `<span class="g ${d > 0 ? "neg" : "pos"}">${d > 0 ? "▲" : "▼"} ${fmt(Math.abs(d))}</span>${pct}`;
+}
+let histOpen = null, histAll = false;
+function historyRows(list) {
+  return list.map((h) => `<tr><td class="small">${whenAt(h.at)}</td><td>${itemLink(h.id)}${h.kind === "vendor" ? ' <span class="pill vendor">vendor</span>' : ""}</td>
+    <td class="num">${gcell(h.from)}${h.fromAt ? `<div class="small">${whenAt(h.fromAt)}</div>` : ""}</td>
+    <td class="num">${gcell(h.to)}</td><td class="num">${shift(h)}</td></tr>`).join("");
+}
+const HIST_HEAD = '<thead><tr><th>Changed</th><th>Item</th><th class="num">Was</th><th class="num">Now</th><th class="num">Shift</th></tr></thead>';
+function historyCard() {
+  const list = [...S.history].reverse(), shown = histAll ? list : list.slice(0, 30);
+  if (!list.length) return '<h2>Price changes</h2><div class="card empty">No changes yet. Every time you change a price here, the old one is kept in this list.</div>';
+  return `<h2>Price changes <span class="small">(${list.length}, newest first)</span></h2>
+    <div class="card"><table>${HIST_HEAD}<tbody>${historyRows(shown)}</tbody></table></div>
+    <div class="toolbar">${list.length > shown.length ? `<button class="btn" data-act="histall">Show all ${list.length}</button>` : ""}
+      <button class="btn" data-act="histclear">Clear the history</button></div>`;
+}
+
 // ---------- input handling ----------
 function setGold(input, apply) {
   const v = parseGold(input.value);
@@ -925,8 +966,8 @@ function setGold(input, apply) {
 }
 view.addEventListener("change", (e) => {
   const t = e.target, d = t.dataset;
-  if (d.ah) { if (setGold(t, (v) => { S.prices[d.ah] = { ah: v, at: new Date().toISOString() }; })) { save(); render(); } }
-  else if (d.vendor) { if (setGold(t, (v) => { S.vendor[d.vendor] = v; })) { save(); render(); } }
+  if (d.ah) { if (setGold(t, (v) => setPrice("ah", d.ah, v))) { save(); render(); } }
+  else if (d.vendor) { if (setGold(t, (v) => setPrice("vendor", d.vendor, v))) { save(); render(); } }
   else if (d.mode) { S.mode[d.mode] = t.value; save(); render(); }
   else if (d.ladder) {
     const [id, k] = d.ladder.split(":");
@@ -966,6 +1007,9 @@ view.addEventListener("click", (e) => {
   const b = t.closest("button"); if (!b) return;
   const d = b.dataset;
   if (d.sub) { T.view = d.sub; render(); }
+  else if (d.hist) { histOpen = histOpen === +d.hist ? null : +d.hist; render(); }
+  else if (d.act === "histall") { histAll = true; render(); }
+  else if (d.act === "histclear" && confirm(`Delete all ${S.history.length} saved price changes? Current prices stay.`)) { S.history = []; save(); render(); }
   else if (d.act === "togglefinished") { T.showFinished = !T.showFinished; render(); }
   else if (d.startbatch) { form.recipe = +d.startbatch; form.prices = null; tab = "batches"; render(); }
   else if (d.delbatch && confirm("Delete this batch? Its sales stay and move to the next batch.")) {

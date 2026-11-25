@@ -297,3 +297,9 @@ for auction sales) and "Received", and a batch's "if the rest sells" uses the li
 - `site/craft/`: new "All recipes" tab: cost, sale price and profit for every recipe, sorted by profit, filters for
   profession, learnable, priced and "recipes I know". Prices: vendor, your price, your latest TSM purchase or sale,
   then Wowhead's average (marked ≈ as rough). Reagents count as crafted when that's cheaper.
+
+## 2026-11-25: Crafting calculator: price history
+- `site/craft/`: every price change (Prices tab, a craft's breakdown, All recipes) keeps the old price, when it was
+  set and when it changed. The Prices tab shows each item's last shift (▲/▼ amount and %), a per-item list behind
+  "n changes", and all changes newest first below the table. Saved in the browser with the prices and included in
+  backups; the reset button doesn't add entries.
