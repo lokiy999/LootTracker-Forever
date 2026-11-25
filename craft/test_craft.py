@@ -38,6 +38,7 @@ TradeSkillMasterDB = {{
 ["s@Lokiy Volaurin - Horde - Normal@internalData@classKey"] = "PRIEST",
 ["s@Lokiy Volaurin - Horde - Normal@internalData@goldLogLastUpdate"] = {saved},
 ["s@Lokiy Volaurin - Horde - Normal@internalData@bagQuantity"] = {{ ["i:254079"] = {bags}, ["i:14047"] = 5 }},
+["s@Lokiy Volaurin - Horde - Normal@internalData@playerProfessions"] = {{ ["Tailoring"] = {{ ["level"] = 260, ["maxLevel"] = 300, ["skillId"] = 197, ["link"] = "|Htrade:Player-1-ABC:1:197|h" }} }},
 ["s@Lokiy Volaurin - Horde - Normal@internalData@auctionQuantity"] = {{ ["i:254079"] = 4 }},
 ["c@Lokiy Volaurin - Normal@internalData@auctionSaleHints"] = {{ ["Runecloth Reagent Bag\001i:254079\0011\00133500"] = 1795400200 }},
 ["g@ @internalData@vendorItems"] = {{ ["i:14341"] = 5000, ["i:2604"] = 50 }},
@@ -110,6 +111,7 @@ def main():
         sales = t["ledger"]["sales"]
         assert sum(r["n"] for r in sales) == 4, sales
         assert next(r for r in sales if r["itemString"] == "i:14046")["n"] == 2
+        assert t["characters"][0]["professions"] == {"Tailoring": {"level": 260, "max": 300}}, t["characters"][0]
         assert len(t["uploads"]) == 3 and t["characters"][0]["money"] == 1034692
         assert len(os.listdir(os.path.join(data, "uploads"))) >= 1
         inv = {(r["place"], r["item"]): r["qty"] for r in t["inventory"]}
@@ -144,7 +146,7 @@ def main():
         status, err = call("/craft/api/tsm/upload", b"not lua at all {{{")
         assert status == 400, err
         print("ok: recipes, merge, repeat upload, overlapping upload, recipe check, inventory and its save time, "
-              "TSM recipes, vendor prices and auction posts, saved page state, refused uploads")
+              "TSM recipes, vendor prices and auction posts, profession levels, saved page state, refused uploads")
     finally:
         proc.terminate()
         proc.wait()

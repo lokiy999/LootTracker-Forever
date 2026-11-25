@@ -93,6 +93,9 @@ def main(paths):
                               "source": sources or ["Pattern"], "trainer": None}
     for spell, r in recipes.items():
         r["cooldown"] = COOLDOWNS.get(spell)
+        # Wowhead lists no source for the recipes you get with the profession (Runed Copper Rod, the first elixirs)
+        if not r["source"] and r["learn"] <= 20:
+            r["source"] = ["Starter"]
     for i, name in EXTRA_ITEMS.items():
         items.setdefault(i, [name, None, None, None])
     used = {r["item"] for r in recipes.values() if r["item"]} | {int(i) for r in recipes.values() for i in r["reagents"]}

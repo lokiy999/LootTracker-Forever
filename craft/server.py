@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS uploads (id INTEGER PRIMARY KEY, at INTEGER NOT NULL,
 CREATE TABLE IF NOT EXISTS ledger (kind TEXT NOT NULL, realm TEXT NOT NULL, row TEXT NOT NULL, n INTEGER NOT NULL,
   upload INTEGER NOT NULL, PRIMARY KEY (kind, realm, row));
 CREATE TABLE IF NOT EXISTS characters (name TEXT NOT NULL, realm TEXT NOT NULL, faction TEXT, class TEXT,
-  money INTEGER, updated INTEGER, PRIMARY KEY (name, realm));
+  money INTEGER, updated INTEGER, professions TEXT, PRIMARY KEY (name, realm));
 CREATE TABLE IF NOT EXISTS inventory (name TEXT NOT NULL, realm TEXT NOT NULL, place TEXT NOT NULL,
   item INTEGER NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY (name, realm, place, item));
 CREATE TABLE IF NOT EXISTS crafts (spell INTEGER PRIMARY KEY, item INTEGER, name TEXT, profession TEXT,
@@ -225,9 +225,11 @@ def merge(con, data, upload_id):
         old = con.execute("SELECT updated FROM characters WHERE name=? AND realm=?", (c["name"], c["realm"])).fetchone()
         if old and old["updated"] and (c.get("updated") or 0) < old["updated"]:
             continue
-        con.execute("""INSERT INTO characters VALUES (?,?,?,?,?,?) ON CONFLICT(name, realm) DO UPDATE SET
-                       faction=excluded.faction, class=excluded.class, money=excluded.money, updated=excluded.updated""",
-                    (c["name"], c["realm"], c.get("faction"), c.get("class"), c.get("money"), c.get("updated")))
+        con.execute("""INSERT INTO characters VALUES (?,?,?,?,?,?,?) ON CONFLICT(name, realm) DO UPDATE SET
+                       faction=excluded.faction, class=excluded.class, money=excluded.money, updated=excluded.updated,
+                       professions=COALESCE(excluded.professions, characters.professions)""",
+                    (c["name"], c["realm"], c.get("faction"), c.get("class"), c.get("money"), c.get("updated"),
+                     json.dumps(c["professions"]) if c.get("professions") else None))
         con.execute("DELETE FROM inventory WHERE name=? AND realm=?", (c["name"], c["realm"]))
         con.executemany("INSERT INTO inventory VALUES (?,?,?,?,?)",
                         [(c["name"], c["realm"], place, item, qty)
@@ -254,7 +256,8 @@ def tsm_data(con):
         rows.sort(key=lambda x: x.get("time", 0), reverse=True)
     uploads = [{**dict(u), "characters": json.loads(u["characters"]), "added": json.loads(u["added"])}
                for u in con.execute("SELECT id, at, size, characters, added FROM uploads ORDER BY id DESC")]
-    chars = [dict(c) for c in con.execute("SELECT * FROM characters ORDER BY name")]
+    chars = [{**dict(c), "professions": json.loads(c["professions"] or "{}")}
+             for c in con.execute("SELECT * FROM characters ORDER BY name")]
     inventory = [dict(r) for r in con.execute("SELECT name, place, item, qty FROM inventory")]
     crafts = [{**dict(r), "mats": {int(k): v for k, v in json.loads(r["mats"]).items()}}
               for r in con.execute("SELECT * FROM crafts")]
@@ -417,10 +420,10 @@ Handler.save_state = _save_state
 
 
 def reread_uploads(con):
-    """Uploads from before a table existed (1: crafts/inventory, 2: postings): read the kept files again, oldest
-    first. Merging a file twice adds no ledger rows, so this only fills what's missing."""
+    """Uploads from before a table existed (1: crafts/inventory, 2: postings, 3: profession levels): read the kept
+    files again, oldest first. Merging a file twice adds no ledger rows, so this only fills what's missing."""
     version = con.execute("PRAGMA user_version").fetchone()[0]
-    if version >= 2:
+    if version >= 3:
         return
     if version < 1:
         with con:  # before this, "updated" was the upload time, not the save time: let the files set it again
@@ -434,7 +437,7 @@ def reread_uploads(con):
             continue
         with con:
             merge(con, data, u["id"])
-    con.execute("PRAGMA user_version = 2")
+    con.execute("PRAGMA user_version = 3")
 
 
 def main():
@@ -442,6 +445,8 @@ def main():
     con = connect()
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)
+    if "professions" not in {r["name"] for r in con.execute("PRAGMA table_info(characters)")}:
+        con.execute("ALTER TABLE characters ADD COLUMN professions TEXT")
     ensure_seeded(con)
     reread_uploads(con)
     con.close()

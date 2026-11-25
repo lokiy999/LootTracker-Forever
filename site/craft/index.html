@@ -83,6 +83,16 @@
   code { font-family: var(--mono); font-size: .8rem; color: var(--muted); word-break: break-all; }
   footer { color: var(--faint); font-size: .85rem; margin-top: 22px; text-align: center; }
   [hidden] { display: none !important; }
+  @media (max-width: 600px) {
+    .wrap { padding: 0 8px 40px; }
+    th, td { padding: 6px 7px; font-size: .84rem; }
+    .g { font-size: .8rem; }
+    tr.open > td:first-child { min-width: 9.5em; }
+    .chev { width: .8em; }
+    tr.detail > td { padding: 10px 8px 14px; }
+    .bigstat .n { font-size: 1.15rem; }
+    input.gin { width: 96px; }
+  }
 </style>
 </head>
 <body>
@@ -90,7 +100,7 @@
   <header>
     <div class="crest">WoW Forever · EU Normal · Horde</div>
     <h1>Crafting Profit</h1>
-    <p class="sub">Cost per craft, break-even and profit after the 5% auction house cut. Prices and batches are saved in this browser.</p>
+    <p class="sub">Cost per craft, break-even and profit after the 5% auction house cut. Prices and batches are saved on the server once you sign in, otherwise in this browser.</p>
   </header>
   <nav class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-tab="calc">Calculator</button>
@@ -572,6 +582,16 @@ function tsmRows(kind) {
 const received = (r) => r.price * r.quantity * r.n;
 const listedAt = (r) => (r.source === "Auction" ? Math.round(r.price / CUT) : r.price);
 
+// How old each character's numbers are: the time TSM saved them in game (newest upload that had the character)
+function dataAge(warnOnly) {
+  const chars = (T.data?.characters || []).filter((c) => c.updated);
+  if (!chars.length) return "";
+  const newest = Math.max(...chars.map((c) => c.updated)), old = Date.now() / 1000 - newest > 86400;
+  if (warnOnly && !old) return "";
+  const list = chars.map((c) => `${charName(c.name)} ${age(new Date(c.updated * 1000).toISOString())}`).join(" · ");
+  return `<p class="${old ? "warn" : "small"}" style="margin:6px 2px">TSM data saved in game: ${list}.${old ? " More than a day old: upload a fresh TradeSkillMaster.lua (from each computer you played on)." : ""}</p>`;
+}
+
 function tsmView() {
   const head = `<div class="card pad">
       <h2 style="margin-top:0">Upload TSM data</h2>
@@ -579,6 +599,7 @@ function tsmView() {
       <p class="small" style="margin:8px 2px 0">Log out of the game first, so the file is written. Then pick
         <code>World of Warcraft\\_forever_\\WTF\\Account\\&lt;account&gt;\\SavedVariables\\TradeSkillMaster.lua</code>.
         Upload from every computer you play on: rows that are already here are skipped, so the totals combine without double counting.</p>
+      ${dataAge(false)}
       ${T.msg?.err ? `<p class="err">${esc(T.msg.err)}</p>` : ""}${T.msg?.ok ? `<p class="ok">${esc(T.msg.ok)}</p>` : ""}
       ${T.msg?.diffs?.length ? `<p class="warn">The game's recipes differ from the database: ${T.msg.diffs.map(esc).join("; ")}.</p>` : ""}
     </div>`;
@@ -782,16 +803,40 @@ function foundBatchRows(list) {
         : b.status === "gone" ? '<span class="warn" title="Not sold and not in your bags, bank, mail or on the AH at the last upload">none</span>' : "–"}</td>
       <td class="num">${gcell(b.costEach)}</td><td class="num">${gcell(breakEven(b.costEach), "gold")}</td>
       <td class="num">${gcell(b.got)}</td><td class="num">${b.sold ? signed(profit) : "–"}</td>
+      <td class="num">${b.sold ? signed(profit / b.sold) : "–"}${b.sold && b.got ? ` <span class="small">${(profit / b.got * 100).toFixed(0)}%</span>` : ""}</td>
       <td class="num">${left && ifRest != null && b.status === "open" ? signed(ifRest) : b.sold ? signed(profit) : "–"}</td></tr>
-      ${isOpen ? `<tr class="detail"><td colspan="11"><div class="small">Bought ${when(b.time)}${b.end - b.time > 60 ? ` to ${when(b.end)}` : ""}:
+      ${isOpen ? `<tr class="detail"><td colspan="12"><div class="small">Bought ${when(b.time)}${b.end - b.time > 60 ? ` to ${when(b.end)}` : ""}:
         materials for ${b.crafts} craft${b.crafts > 1 ? "s" : ""}. Vendor reagents that weren't bought are counted at the vendor price.</div>
         <div class="inner"><table><thead><tr><th>Material used</th><th class="num">How many</th><th class="num">Paid each</th><th class="num">Total</th></tr></thead>
         <tbody>${used}<tr class="last"><td colspan="3"><b>Batch cost</b></td><td class="num"><b>${gcell(b.cost)}</b></td></tr></tbody></table></div></td></tr>` : ""}`;
   }).join("");
 }
 
+// All batches of the same craft added up: what selling them really made, per item
+function perItemCard(batches) {
+  const by = new Map();
+  for (const b of batches) {
+    const x = by.get(b.item) || { item: b.item, n: 0, made: 0, sold: 0, cost: 0, got: 0 };
+    x.n++; x.made += b.made; x.sold += b.sold; x.cost += b.sold * b.costEach; x.got += b.got;
+    by.set(b.item, x);
+  }
+  const rows = [...by.values()].filter((x) => x.sold).sort((a, b) => (b.got - b.cost) - (a.got - a.cost));
+  if (!rows.length) return "";
+  const tot = rows.reduce((t, x) => ({ sold: t.sold + x.sold, cost: t.cost + x.cost, got: t.got + x.got }), { sold: 0, cost: 0, got: 0 });
+  return `<h2>Profit per item, all batches</h2><div class="card"><table>
+    <thead><tr><th>Craft</th><th class="num">Batches</th><th class="num">Made</th><th class="num">Sold</th><th class="num">Cost of what sold</th>
+      <th class="num">Received</th><th class="num">Profit</th><th class="num">Profit each</th></tr></thead>
+    <tbody>${rows.map((x) => { const pr = x.got - x.cost; return `<tr><td>${itemLink(x.item)}</td><td class="num">${x.n}</td>
+      <td class="num">${x.made}</td><td class="num">${x.sold}</td><td class="num">${gcell(x.cost)}</td><td class="num">${gcell(x.got)}</td>
+      <td class="num">${signed(pr)}</td><td class="num">${signed(pr / x.sold)} <span class="small">${x.got ? (pr / x.got * 100).toFixed(0) + "%" : ""}</span></td></tr>`; }).join("")}
+    <tr class="last"><td colspan="3"><b>All crafts</b></td><td class="num"><b>${tot.sold}</b></td><td class="num">${gcell(tot.cost)}</td>
+      <td class="num">${gcell(tot.got)}</td><td class="num"><b>${signed(tot.got - tot.cost)}</b></td><td></td></tr></tbody></table></div>
+    <p class="note">Open and closed batches together. Received is after the 5% cut; cost is what the materials cost in that
+      batch. Postage and deposits aren't counted.</p>`;
+}
+
 function foundView() {
-  const intro = '<h2 style="margin-top:4px">From your TSM purchases</h2>';
+  let intro = '<h2 style="margin-top:4px">From your TSM purchases</h2>';
   if (!T.data) {
     if (T.loading) return intro + '<div class="card empty">Loading TSM data…</div>';
     return intro + `<div class="card empty">${T.error && T.error !== "signin" ? `<span class="err">${esc(T.error)}</span><br>` : ""}
@@ -799,12 +844,13 @@ function foundView() {
       <div style="margin-top:10px"><button class="btn" data-act="tsmload">Show batches from TSM</button></div></div>`;
   }
   const f = detectBatches(T.data);
+  intro += dataAge(true);
   if (!f || !f.batches.length) return intro + '<div class="card empty">No batches found in your TSM purchases yet.</div>';
   const open = f.batches.filter((b) => b.status === "open").reverse(), done = f.batches.filter((b) => b.status !== "open").reverse();
   const gone = done.filter((b) => b.status === "gone").length;
   const head = `<thead><tr><th>Bought</th><th>Craft</th><th class="num">Made</th><th class="num">Sold</th><th class="num">Left</th>
     <th class="num">In stock</th><th class="num">Cost each</th><th class="num">Break-even</th><th class="num">Received</th>
-    <th class="num">Profit so far</th><th class="num">If the rest sells at AH price</th></tr></thead>`;
+    <th class="num">Profit so far</th><th class="num">Profit each sold</th><th class="num">If the rest sells at AH price</th></tr></thead>`;
   const stockLine = [...new Set(open.map((b) => b.item))].map((i) =>
     `<div class="small">${itemLink(i)} in stock now: ${stockText(f.stock[i]) || "none"}.</div>`).join("");
   const unmatched = Object.entries(f.unmatched).map(([i, n]) => `${n} ${esc(nameOf(+i))}`).join(", ");
@@ -818,6 +864,7 @@ function foundView() {
         items (or, for the newest, its materials) are in your bags, bank, mail or on the AH at the last upload; items in stock
         count for the newest batches first. Open a row for the materials. Upload again to update.</div>
       ${f.hasInventory ? "" : '<div class="warn">No inventory in the uploads yet: every batch that isn\'t sold out shows as open. Upload again to fix that.</div>'}</div>
+    ${perItemCard(f.batches)}
     ${done.length ? `<button class="btn" data-act="togglefinished">${T.showFinished ? "Hide" : "Show"} ${done.length} closed batch${done.length > 1 ? "es" : ""}
         (${done.length - gone} sold out${gone ? `, ${gone} not sold but no longer in stock` : ""})</button>
       ${T.showFinished ? `<div class="card" style="margin-top:10px"><table>${head}<tbody>${foundBatchRows(done)}</tbody></table></div>` : ""}` : ""}`;
@@ -1116,6 +1163,7 @@ function planView() {
   return `<div class="toolbar">
       <label class="field">Make enough for <select data-plan="days">${[["1", "1 day"], ["3", "3 days"], ["7", "7 days"]].map(([v, t]) => `<option value="${v}"${P.days === v ? " selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="small"><input type="checkbox" data-plan="untested"${P.untested ? " checked" : ""}> show recipes you haven't sold yet</label></div>
+    ${dataAge(true)}
     <h2>Worth making: they sell, at a profit</h2>${sellTable}${loseNote}${tryTable}
     <p class="note">From the ${T.data.crafts.length} recipes your characters know (TSM). Sold = your auction sales in the last
       ${SALE_DAYS} days; sell-through = sold ÷ (sold + expired + cancelled). Make now = sales for the chosen days − what's on
@@ -1125,16 +1173,23 @@ function planView() {
 // ---------- skill-up planner ----------
 // Cheapest way from one skill to another at today's prices: at each skill point, the recipe with the lowest expected
 // cost per skill-up. Chance of a skill-up: orange 100%; from yellow to grey (grey − skill) ÷ (grey − yellow).
-const K = { prof: "Enchanting", from: 1, to: 300, trainer: true, vendor: true, drop: false, known: false };
+const K = { prof: "Enchanting", from: 1, to: 300, trainer: true, vendor: true, drop: false, known: false, fromAuto: true };
+// Your characters' levels in a profession (TSM uploads), highest first
+function profLevels(prof) {
+  return (T.data?.characters || []).filter((c) => c.professions?.[prof])
+    .map((c) => ({ name: String(c.name).split(" ")[0], ...c.professions[prof] })).sort((a, b) => b.level - a.level);
+}
 function skillChance(r, skill) {
-  if (!r.grey || skill < r.learn || skill >= r.grey) return 0;
+  // recipes learned at 5 or lower come with the profession and can be made from skill 1
+  if (!r.grey || skill < (r.learn <= 5 ? 1 : r.learn) || skill >= r.grey) return 0;
   if (r.yellow == null || skill < r.yellow) return 1;
   return (r.grey - skill) / (r.grey - r.yellow);
 }
 function skillPlan() {
   const known = knownSpells();
-  const allowed = (r) => (K.known ? known.has(r.spell) : (r.source.includes("Trainer") && K.trainer) || (r.source.includes("Vendor") && K.vendor)
-    || (r.source.some((x) => x !== "Trainer" && x !== "Vendor") && K.drop) || known.has(r.spell));
+  const allowed = (r) => (K.known ? known.has(r.spell) : r.source.includes("Starter") || (r.source.includes("Trainer") && K.trainer)
+    || (r.source.includes("Vendor") && K.vendor) || (r.source.some((x) => !["Trainer", "Vendor", "Starter"].includes(x)) && K.drop)
+    || known.has(r.spell));
   // recipes with a cooldown (Mooncloth, transmutes) are left out: a skill point every few days is no plan
   const pool = C.data.recipes.filter((r) => r.profession === K.prof && r.grey && !r.cooldown && allowed(r))
     .map((r) => ({ r, c: catCost(r) })).filter((x) => !x.c.missing.length);
@@ -1162,6 +1217,8 @@ function skillPlan() {
 function skillView() {
   if (C.error) return `<div class="card empty"><span class="err">${esc(C.error)}</span></div>`;
   if (!C.data) return '<div class="empty">Loading the recipe database…</div>';
+  const levels = profLevels(K.prof);
+  if (K.fromAuto && levels.length) K.from = Math.max(1, Math.min(299, levels[0].level));
   const plan = skillPlan();
   const chk = (k, t, dis) => `<label class="small"${dis ? ` title="${dis}"` : ""}><input type="checkbox" data-skill="${k}"${K[k] ? " checked" : ""}${dis ? " disabled" : ""}> ${t}</label>`;
   const steps = plan.steps.map((st) => `<tr><td class="num">${st.from}–${st.to}</td>
@@ -1177,6 +1234,8 @@ function skillView() {
       <label class="field">To <input type="number" class="qin" min="1" max="300" value="${K.to}" data-skill="to"></label>
       ${chk("trainer", "trainer recipes")} ${chk("vendor", "vendor recipes")} ${chk("drop", "drops and quests")}
       ${chk("known", "only recipes I know", T.data ? "" : "Needs your TSM data (sign in on the TSM tab)")}</div>
+    ${levels.length ? `<p class="small" style="margin:0 2px 8px">${levels.map((l) => `${esc(l.name)}: ${esc(K.prof)} ${l.level}/${l.max}`).join(" · ")} (last upload)${K.fromAuto ? "" : ' · <button class="link hist" data-act="skillauto">start from that again</button>'}</p>`
+      : T.data ? `<p class="small" style="margin:0 2px 8px">None of your uploaded characters has ${esc(K.prof)}${K.prof === "Alchemy" ? ": upload the alchemy alt's TSM file" : ""}.</p>` : ""}
     <div class="big">
       <div class="bigstat"><div class="n">${fmt(plan.total)}</div><div class="l">Materials, skill ${K.from} → ${K.to}</div></div>
       <div class="bigstat"><div class="n">${fmt(plan.training)}</div><div class="l">Trainer costs for recipes you don't know</div></div>
@@ -1217,7 +1276,12 @@ view.addEventListener("change", (e) => {
   else if (t.id === "catPriced") { C.priced = t.checked; render(); }
   else if (t.id === "catKnown") { C.known = t.checked; render(); }
   else if (d.plan) { P[d.plan] = t.type === "checkbox" ? t.checked : t.value; render(); }
-  else if (d.skill) { K[d.skill] = t.type === "checkbox" ? t.checked : t.type === "number" ? Math.max(1, Math.min(300, +t.value || 1)) : t.value; render(); }
+  else if (d.skill) {
+    K[d.skill] = t.type === "checkbox" ? t.checked : t.type === "number" ? Math.max(1, Math.min(300, +t.value || 1)) : t.value;
+    if (d.skill === "from") K.fromAuto = false;
+    if (d.skill === "prof") { K.fromAuto = true; K.from = 1; }
+    render();
+  }
   else if (t.id === "importFile" && t.files[0]) importBackup(t.files[0]);
 });
 let qTimer;
@@ -1268,6 +1332,7 @@ view.addEventListener("click", (e) => {
   else if (d.act === "tsmload") loadTSM();
   else if (d.act === "catload") { loadCatalog(); render(); }
   else if (d.act === "catmore") { C.limit = Infinity; render(); }
+  else if (d.act === "skillauto") { K.fromAuto = true; render(); }
   else if (d.act === "export") {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 1)], { type: "application/json" }));

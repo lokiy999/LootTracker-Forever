@@ -3,7 +3,8 @@
 What it takes out:
   ledger      TSM's accounting: r@<realm>@internalData@csv{Sales,Buys,Cancelled,Expired,Expense,Income}, CSV text with
               a header row. Each row becomes a dict keyed by that header.
-  characters  s@<Name Realm> - <Faction> - <realm>@internalData@{money,classKey,goldLogLastUpdate}; goldLogLastUpdate
+  characters  s@<Name Realm> - <Faction> - <realm>@internalData@{money,classKey,goldLogLastUpdate,playerProfessions}
+              (professions: name -> level and max level); goldLogLastUpdate
               (unix time) says how new the character's numbers are, so an older file never overwrites newer ones
   inventory   s@...@internalData@{bag,bank,mail,auction,...}Quantity: item -> count, per character
   crafts      f@<Faction> - <realm>@internalData@crafts: the recipes the game told TSM (spell -> mats, numResult)
@@ -25,7 +26,7 @@ KINDS = {"csvSales": "sales", "csvBuys": "buys", "csvCancelled": "cancelled", "c
 INT_FIELDS = {"stackSize", "quantity", "price", "time", "amount"}
 LEDGER_KEY = re.compile(r"^r@(?P<realm>[^@]+)@internalData@(?P<csv>csv\w+)$")
 CHAR_KEY = re.compile(r"^s@(?P<name>.+) - (?P<faction>[^-@]+) - (?P<realm>[^@]+)@internalData@"
-                      r"(?P<field>money|classKey|goldLogLastUpdate|(?P<place>\w+)Quantity)$")
+                      r"(?P<field>money|classKey|goldLogLastUpdate|playerProfessions|(?P<place>\w+)Quantity)$")
 CRAFTS_KEY = re.compile(r"^f@[^@]+@internalData@crafts$")
 VENDOR_KEY = "g@ @internalData@vendorItems"
 HINTS_KEY = re.compile(r"^c@(?P<name>.+) - (?P<realm>[^@]+)@internalData@auctionSaleHints$")
@@ -81,6 +82,10 @@ def read(text):
                 if isinstance(value, dict):
                     c["inventory"][m["place"]] = {i: q for k, q in value.items()
                                                   if (i := item_id(k)) and isinstance(q, int) and q > 0}
+            elif m["field"] == "playerProfessions":
+                if isinstance(value, dict):  # name -> level and max (the trade link has a player ID: not kept)
+                    c["professions"] = {n: {"level": p.get("level"), "max": p.get("maxLevel")}
+                                        for n, p in value.items() if isinstance(p, dict) and isinstance(p.get("level"), int)}
             else:
                 c[CHAR_FIELDS[m["field"]]] = value
             continue

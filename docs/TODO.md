@@ -88,6 +88,9 @@ Background (research 2026-11-04):
 ## 7. Release
 - [ ] 7.1 "How to edit" for the addon, upload flow, cron job and site: README + the admin page (standing rule). **README updated; admin page link still to add.**
 - [ ] 7.2 Package the addon from `addon/`. **Private (Lokiy, 2026-11-05): no CurseForge, no public page.** For now it's a password-protected zip at forever.lokiy.dev/admin/.
+- [ ] 7.6 **(Lokiy)** Make the GitHub repo lokiy999/LootTracker-Forever private: it is public (found 2026-11-25),
+      which goes against 7.2. GitHub → the repo's Settings → Change visibility. Not possible from the laptop;
+      do it at home.
 - [x] 7.3 Link the Forever loot site from lokiy.dev, with V+ and Forever clearly separate. **Not wanted (Lokiy,
       2026-11-07): the site stays reachable by its address only.**
 - [x] 7.4 **(Lokiy)** First real uploads; check the site. First upload approved 2026-11-07 (Lokiy and Udolamin).

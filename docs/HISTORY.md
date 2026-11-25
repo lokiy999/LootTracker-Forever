@@ -329,3 +329,14 @@ for auction sales) and "Received", and a batch's "if the rest sells" uses the li
 - All 834 recipes' Wowhead tooltips checked for a craft cooldown: Mooncloth and 13 alchemy transmutes have one.
   `import_wowhead.py` keeps them as `cooldown` in catalog.json (new column); the Skill-up tab leaves them out and
   All recipes shows the cooldown in a recipe's details.
+
+## 2026-11-25: Crafting calculator: profession levels, profit per item, starter recipes, data age, phone layout
+- `craft/tsm.py` + `server.py`: each character's profession levels (TSM's playerProfessions; the trade link with its
+  player ID isn't kept) in a new `professions` column; existing uploads read again once (user_version 3).
+- Skill-up starts from your character's real level (e.g. Lokiy Tailoring 260/300) until you type another.
+- Batches: "profit each sold" per batch and a "profit per item, all batches" table (open and closed).
+- Recipe database: recipes Wowhead lists without a source at skill 20 or lower are "Starter" (they come with the
+  profession); Skill-up uses them, which closes Enchanting's 1–9 gap.
+- TSM, What to craft and Batches show when each character's TSM data was saved, with a warning past a day.
+- Tighter layout on phone screens; header text says prices are saved on the server once signed in.
+- `docs/TODO.md` 7.6: make the GitHub repo private (Lokiy, at home).
